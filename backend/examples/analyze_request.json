@@ -1,0 +1,88 @@
+{
+  "ascap_work": {
+    "title": "THE GREATEST",
+    "song_code": "123456789",
+    "iswc": null,
+    "alternate_titles": [],
+    "writers": [
+      {
+        "name": "Andrew Rubalcava",
+        "ipi_cae": null,
+        "share": 50
+      },
+      {
+        "name": "Jane Smith",
+        "ipi_cae": null,
+        "share": 50
+      }
+    ],
+    "publishers": [
+      {
+        "name": "Example Publishing",
+        "ipi_cae": null,
+        "share": 100
+      }
+    ],
+    "source_url": null,
+    "notes": null
+  },
+  "candidates": [
+    {
+      "source": "Songview",
+      "title": "GREATEST, THE",
+      "public_work_id": "SV-12345",
+      "iswc": "T-123456789-0",
+      "alternate_titles": [],
+      "writers": [
+        {
+          "name": "Andrew Rubalcava",
+          "ipi_cae": null,
+          "share": 33.33
+        },
+        {
+          "name": "Jane Smith",
+          "ipi_cae": null,
+          "share": 33.33
+        },
+        {
+          "name": "Mark Lee",
+          "ipi_cae": null,
+          "share": 33.34
+        }
+      ],
+      "publishers": [
+        {
+          "name": "Example Publishing",
+          "ipi_cae": null,
+          "share": null
+        },
+        {
+          "name": "Other Music Publishing",
+          "ipi_cae": null,
+          "share": null
+        }
+      ],
+      "status": null,
+      "source_url": null,
+      "raw_notes": null
+    },
+    {
+      "source": "BMI Repertoire",
+      "title": "UNRELATED WORK",
+      "public_work_id": "BMI-999",
+      "iswc": null,
+      "alternate_titles": [],
+      "writers": [
+        {
+          "name": "Different Writer",
+          "ipi_cae": null,
+          "share": 100
+        }
+      ],
+      "publishers": [],
+      "status": null,
+      "source_url": null,
+      "raw_notes": null
+    }
+  ]
+}

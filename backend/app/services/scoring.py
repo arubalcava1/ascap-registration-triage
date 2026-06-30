@@ -1,0 +1,149 @@
+from rapidfuzz import fuzz, process
+
+from app.schemas import AscapWork, CandidateWork, MatchingEvidence
+from app.services.normalizer import (
+    normalize_iswc,
+    normalize_title,
+    normalized_ipis,
+    normalized_party_names,
+    shares_by_normalized_name,
+)
+
+
+TITLE_WEIGHT = 25.0
+ISWC_WEIGHT = 20.0
+WRITER_IPI_WEIGHT = 20.0
+WRITER_NAME_WEIGHT = 15.0
+PUBLISHER_WEIGHT = 10.0
+SHARE_WEIGHT = 10.0
+
+
+def confidence_label(score: float) -> str:
+    if score >= 85:
+        return "Strong Match"
+    if score >= 65:
+        return "Possible Match"
+    if score >= 40:
+        return "Weak Match"
+    return "Needs Manual Review"
+
+
+def score_candidate(ascap_work: AscapWork, candidate: CandidateWork) -> tuple[float, list[MatchingEvidence]]:
+    evidence: list[MatchingEvidence] = []
+
+    title_score = _score_title(ascap_work, candidate)
+    _add_evidence(evidence, "title", title_score, TITLE_WEIGHT, "Title similarity supports this candidate")
+
+    iswc_score = _score_iswc(ascap_work, candidate)
+    _add_evidence(evidence, "iswc", iswc_score, ISWC_WEIGHT, "ISWC comparison supports this candidate")
+
+    writer_ipi_score = _score_ipi_overlap(ascap_work.writers, candidate.writers)
+    _add_evidence(evidence, "writer_ipi_cae", writer_ipi_score, WRITER_IPI_WEIGHT, "Writer IPI/CAE overlap supports this candidate")
+
+    writer_name_score = _score_party_name_overlap(ascap_work.writers, candidate.writers)
+    _add_evidence(evidence, "writers", writer_name_score, WRITER_NAME_WEIGHT, "Writer name similarity supports this candidate")
+
+    publisher_score = max(
+        _score_party_name_overlap(ascap_work.publishers, candidate.publishers, publisher=True),
+        _score_ipi_overlap(ascap_work.publishers, candidate.publishers),
+    )
+    _add_evidence(evidence, "publishers", publisher_score, PUBLISHER_WEIGHT, "Publisher similarity supports this candidate")
+
+    share_score = _score_share_similarity(ascap_work, candidate)
+    _add_evidence(evidence, "shares", share_score, SHARE_WEIGHT, "Ownership share comparison supports this candidate")
+
+    total = (
+        title_score * TITLE_WEIGHT
+        + iswc_score * ISWC_WEIGHT
+        + writer_ipi_score * WRITER_IPI_WEIGHT
+        + writer_name_score * WRITER_NAME_WEIGHT
+        + publisher_score * PUBLISHER_WEIGHT
+        + share_score * SHARE_WEIGHT
+    )
+
+    return round(total, 2), evidence
+
+
+def _score_title(ascap_work: AscapWork, candidate: CandidateWork) -> float:
+    ascap_titles = [ascap_work.title, *ascap_work.alternate_titles]
+    candidate_titles = [candidate.title, *candidate.alternate_titles]
+    normalized_ascap = [normalize_title(title) for title in ascap_titles if normalize_title(title)]
+    normalized_candidate = [normalize_title(title) for title in candidate_titles if normalize_title(title)]
+
+    if not normalized_ascap or not normalized_candidate:
+        return 0.0
+
+    best = 0.0
+    for title in normalized_ascap:
+        match = process.extractOne(title, normalized_candidate, scorer=fuzz.token_sort_ratio)
+        if match:
+            best = max(best, match[1] / 100)
+    return best
+
+
+def _score_iswc(ascap_work: AscapWork, candidate: CandidateWork) -> float:
+    ascap_iswc = normalize_iswc(ascap_work.iswc)
+    candidate_iswc = normalize_iswc(candidate.iswc)
+    if not ascap_iswc or not candidate_iswc:
+        return 0.0
+    return 1.0 if ascap_iswc == candidate_iswc else 0.0
+
+
+def _score_ipi_overlap(ascap_parties, candidate_parties) -> float:
+    ascap_ipis = normalized_ipis(ascap_parties)
+    candidate_ipis = normalized_ipis(candidate_parties)
+    if not ascap_ipis or not candidate_ipis:
+        return 0.0
+    return len(ascap_ipis & candidate_ipis) / len(ascap_ipis | candidate_ipis)
+
+
+def _score_party_name_overlap(ascap_parties, candidate_parties, *, publisher: bool = False) -> float:
+    ascap_names = normalized_party_names(ascap_parties, publisher=publisher)
+    candidate_names = normalized_party_names(candidate_parties, publisher=publisher)
+    if not ascap_names or not candidate_names:
+        return 0.0
+
+    scores = []
+    for name in ascap_names:
+        match = process.extractOne(name, candidate_names, scorer=fuzz.token_sort_ratio)
+        scores.append(match[1] / 100 if match else 0.0)
+    return sum(scores) / len(scores)
+
+
+def _score_share_similarity(ascap_work: AscapWork, candidate: CandidateWork) -> float:
+    writer_score = _share_overlap(ascap_work.writers, candidate.writers)
+    publisher_score = _share_overlap(ascap_work.publishers, candidate.publishers, publisher=True)
+    scores = [score for score in [writer_score, publisher_score] if score is not None]
+    if not scores:
+        return 0.0
+    return sum(scores) / len(scores)
+
+
+def _share_overlap(ascap_parties, candidate_parties, *, publisher: bool = False) -> float | None:
+    ascap_shares = shares_by_normalized_name(ascap_parties, publisher=publisher)
+    candidate_shares = shares_by_normalized_name(candidate_parties, publisher=publisher)
+    common_names = set(ascap_shares) & set(candidate_shares)
+    if not common_names:
+        return None
+
+    differences = [abs(ascap_shares[name] - candidate_shares[name]) for name in common_names]
+    average_difference = sum(differences) / len(differences)
+    return max(0.0, 1.0 - (average_difference / 100))
+
+
+def _add_evidence(
+    evidence: list[MatchingEvidence],
+    field: str,
+    normalized_score: float,
+    weight: float,
+    description: str,
+) -> None:
+    impact = round(normalized_score * weight, 2)
+    if impact > 0:
+        evidence.append(
+            MatchingEvidence(
+                field=field,
+                description=description,
+                score_impact=impact,
+            )
+        )
