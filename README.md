@@ -105,6 +105,7 @@ The final report gives the user a clearer starting point for resolving the issue
 * Manual ASCAP work metadata entry
 * Candidate public repertoire record entry
 * API-backed public repertoire discovery assist
+* Pasted public result parsing into candidate records
 * Title normalization and fuzzy title matching
 * Writer name and IPI/CAE comparison
 * Publisher comparison

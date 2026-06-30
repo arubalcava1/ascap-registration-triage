@@ -22,9 +22,11 @@ import {
   AnalyzeResponse,
   CandidateDiscoveryAction,
   CandidateDiscoveryResponse,
+  CandidateParseResponse,
   CandidateWork,
   discoverCandidates,
   Party,
+  parseCandidate,
 } from "./lib/api";
 import { cn } from "./lib/utils";
 import { Button } from "./components/ui/button";
@@ -84,6 +86,11 @@ function App() {
   const [discovery, setDiscovery] = useState<CandidateDiscoveryResponse | null>(null);
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [discoveryError, setDiscoveryError] = useState("");
+  const [pasteSource, setPasteSource] = useState("Songview");
+  const [pasteText, setPasteText] = useState("");
+  const [parseResult, setParseResult] = useState<CandidateParseResponse | null>(null);
+  const [parseError, setParseError] = useState("");
+  const [isParsingCandidate, setIsParsingCandidate] = useState(false);
 
   const canAnalyze = title.trim().length > 0 && candidates.some((candidate) => candidate.title.trim());
   const topResult = response?.top_result;
@@ -174,6 +181,24 @@ function App() {
     await navigator.clipboard.writeText(link.search_term);
     setCopiedSearchSource(link.source);
     window.setTimeout(() => setCopiedSearchSource(""), 1600);
+  }
+
+  async function handleParseCandidate() {
+    setParseError("");
+    setIsParsingCandidate(true);
+
+    try {
+      const result = await parseCandidate({
+        source: pasteSource,
+        raw_text: pasteText,
+      });
+      setParseResult(result);
+      setCandidates((current) => [...current, candidateToDraft(result.candidate)]);
+    } catch (caught) {
+      setParseError(caught instanceof Error ? caught.message : "Candidate parsing failed.");
+    } finally {
+      setIsParsingCandidate(false);
+    }
   }
 
   return (
@@ -316,6 +341,61 @@ function App() {
                   <p className="rounded-md border border-white/10 bg-white/[0.04] p-3 text-xs leading-5 text-slate-400 md:col-span-2">
                     {discovery.summary} {discovery.disclaimer}
                   </p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="glass-line">
+              <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <CardTitle>Paste Public Result</CardTitle>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Paste visible public repertoire text and convert it into an editable candidate.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={!pasteText.trim() || isParsingCandidate}
+                  onClick={handleParseCandidate}
+                >
+                  {isParsingCandidate ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardList className="h-4 w-4" />}
+                  Parse candidate
+                </Button>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-3">
+                <Field label="Source">
+                  <Input value={pasteSource} onChange={(event) => setPasteSource(event.target.value)} />
+                </Field>
+                <Field label="Copied public result text" className="md:col-span-2">
+                  <Textarea
+                    className="min-h-36"
+                    value={pasteText}
+                    onChange={(event) => setPasteText(event.target.value)}
+                    placeholder={"Title: GREATEST, THE\nISWC: T-123456789-0\nWriters:\nAndrew Rubalcava | 33.33%"}
+                  />
+                </Field>
+
+                {parseError && (
+                  <div className="rounded-md border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-100 md:col-span-3">
+                    {parseError}
+                  </div>
+                )}
+
+                {parseResult && (
+                  <div className="rounded-lg border border-sky-300/20 bg-sky-300/10 p-4 text-sm text-slate-200 md:col-span-3">
+                    <div className="mb-2 font-medium">Added parsed candidate: {parseResult.candidate.title}</div>
+                    <div className="text-slate-400">
+                      Parsed fields: {parseResult.parsed_fields.length ? parseResult.parsed_fields.join(", ") : "none"}
+                    </div>
+                    {parseResult.warnings.length > 0 && (
+                      <ul className="mt-3 space-y-1 text-amber-100">
+                        {parseResult.warnings.map((warning) => (
+                          <li key={warning}>{warning}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -669,6 +749,31 @@ function toCandidateWork(candidate: CandidateDraft): CandidateWork {
     source_url: optional(candidate.sourceUrl),
     raw_notes: optional(candidate.rawNotes),
   };
+}
+
+function candidateToDraft(candidate: CandidateWork): CandidateDraft {
+  return {
+    source: candidate.source,
+    title: candidate.title,
+    publicWorkId: candidate.public_work_id ?? "",
+    iswc: candidate.iswc ?? "",
+    writers: formatParties(candidate.writers),
+    publishers: formatParties(candidate.publishers),
+    status: candidate.status ?? "",
+    sourceUrl: candidate.source_url ?? "",
+    rawNotes: candidate.raw_notes ?? "",
+  };
+}
+
+function formatParties(parties: Party[]): string {
+  return parties
+    .map((party) => {
+      if (party.share === null) {
+        return party.name;
+      }
+      return `${party.name} | ${party.share}`;
+    })
+    .join("\n");
 }
 
 function optional(value: string): string | null {

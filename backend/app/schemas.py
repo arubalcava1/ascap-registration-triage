@@ -56,6 +56,17 @@ class CandidateDiscoveryResponse(BaseModel):
     disclaimer: str
 
 
+class CandidateParseRequest(BaseModel):
+    source: str = Field(..., min_length=1)
+    raw_text: str = Field(..., min_length=1)
+
+
+class CandidateParseResponse(BaseModel):
+    candidate: CandidateWork
+    parsed_fields: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 Severity = Literal["low", "medium", "high"]
 
 

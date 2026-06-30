@@ -51,6 +51,17 @@ export type CandidateDiscoveryResponse = {
   disclaimer: string;
 };
 
+export type CandidateParseRequest = {
+  source: string;
+  raw_text: string;
+};
+
+export type CandidateParseResponse = {
+  candidate: CandidateWork;
+  parsed_fields: string[];
+  warnings: string[];
+};
+
 export type Discrepancy = {
   type: string;
   severity: "low" | "medium" | "high";
@@ -128,4 +139,23 @@ export async function discoverCandidates(
   }
 
   return response.json() as Promise<CandidateDiscoveryResponse>;
+}
+
+export async function parseCandidate(
+  payload: CandidateParseRequest,
+): Promise<CandidateParseResponse> {
+  const response = await fetch("/api/parse-candidate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || `Candidate parsing failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<CandidateParseResponse>;
 }
