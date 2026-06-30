@@ -30,38 +30,59 @@ def confidence_label(score: float) -> str:
 
 def score_candidate(ascap_work: AscapWork, candidate: CandidateWork) -> tuple[float, list[MatchingEvidence]]:
     evidence: list[MatchingEvidence] = []
+    weighted_scores: list[tuple[float, float]] = []
 
     title_score = _score_title(ascap_work, candidate)
     _add_evidence(evidence, "title", title_score, TITLE_WEIGHT, "Title similarity supports this candidate")
+    weighted_scores.append((title_score, TITLE_WEIGHT))
 
-    iswc_score = _score_iswc(ascap_work, candidate)
-    _add_evidence(evidence, "iswc", iswc_score, ISWC_WEIGHT, "ISWC comparison supports this candidate")
+    if _has_comparable_iswc(ascap_work, candidate):
+        iswc_score = _score_iswc(ascap_work, candidate)
+        _add_evidence(evidence, "iswc", iswc_score, ISWC_WEIGHT, "ISWC comparison supports this candidate")
+        weighted_scores.append((iswc_score, ISWC_WEIGHT))
 
-    writer_ipi_score = _score_ipi_overlap(ascap_work.writers, candidate.writers)
-    _add_evidence(evidence, "writer_ipi_cae", writer_ipi_score, WRITER_IPI_WEIGHT, "Writer IPI/CAE overlap supports this candidate")
+    if _has_comparable_ipis(ascap_work.writers, candidate.writers):
+        writer_ipi_score = _score_ipi_overlap(ascap_work.writers, candidate.writers)
+        _add_evidence(evidence, "writer_ipi_cae", writer_ipi_score, WRITER_IPI_WEIGHT, "Writer IPI/CAE overlap supports this candidate")
+        weighted_scores.append((writer_ipi_score, WRITER_IPI_WEIGHT))
 
     writer_name_score = _score_party_name_overlap(ascap_work.writers, candidate.writers)
     _add_evidence(evidence, "writers", writer_name_score, WRITER_NAME_WEIGHT, "Writer name similarity supports this candidate")
+    weighted_scores.append((writer_name_score, WRITER_NAME_WEIGHT))
 
     publisher_score = max(
         _score_party_name_overlap(ascap_work.publishers, candidate.publishers, publisher=True),
         _score_ipi_overlap(ascap_work.publishers, candidate.publishers),
     )
     _add_evidence(evidence, "publishers", publisher_score, PUBLISHER_WEIGHT, "Publisher similarity supports this candidate")
+    weighted_scores.append((publisher_score, PUBLISHER_WEIGHT))
 
-    share_score = _score_share_similarity(ascap_work, candidate)
-    _add_evidence(evidence, "shares", share_score, SHARE_WEIGHT, "Ownership share comparison supports this candidate")
+    if _has_comparable_shares(ascap_work, candidate):
+        share_score = _score_share_similarity(ascap_work, candidate)
+        _add_evidence(evidence, "shares", share_score, SHARE_WEIGHT, "Ownership share comparison supports this candidate")
+        weighted_scores.append((share_score, SHARE_WEIGHT))
 
-    total = (
-        title_score * TITLE_WEIGHT
-        + iswc_score * ISWC_WEIGHT
-        + writer_ipi_score * WRITER_IPI_WEIGHT
-        + writer_name_score * WRITER_NAME_WEIGHT
-        + publisher_score * PUBLISHER_WEIGHT
-        + share_score * SHARE_WEIGHT
-    )
+    available_weight = sum(weight for _, weight in weighted_scores)
+    if available_weight == 0:
+        return 0.0, evidence
+
+    total = sum(score * weight for score, weight in weighted_scores) / available_weight * 100
 
     return round(total, 2), evidence
+
+
+def _has_comparable_iswc(ascap_work: AscapWork, candidate: CandidateWork) -> bool:
+    return bool(normalize_iswc(ascap_work.iswc) and normalize_iswc(candidate.iswc))
+
+
+def _has_comparable_ipis(ascap_parties, candidate_parties) -> bool:
+    return bool(normalized_ipis(ascap_parties) and normalized_ipis(candidate_parties))
+
+
+def _has_comparable_shares(ascap_work: AscapWork, candidate: CandidateWork) -> bool:
+    return _share_overlap(ascap_work.writers, candidate.writers) is not None or _share_overlap(
+        ascap_work.publishers, candidate.publishers, publisher=True
+    ) is not None
 
 
 def _score_title(ascap_work: AscapWork, candidate: CandidateWork) -> float:
