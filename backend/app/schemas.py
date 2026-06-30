@@ -38,6 +38,24 @@ class AnalyzeRequest(BaseModel):
     candidates: list[CandidateWork] = Field(..., min_length=1)
 
 
+class CandidateDiscoveryRequest(BaseModel):
+    ascap_work: AscapWork
+
+
+class CandidateDiscoveryAction(BaseModel):
+    source: str
+    description: str
+    url: str
+    search_term: str
+    search_type: str
+
+
+class CandidateDiscoveryResponse(BaseModel):
+    actions: list[CandidateDiscoveryAction] = Field(default_factory=list)
+    summary: str
+    disclaimer: str
+
+
 Severity = Literal["low", "medium", "high"]
 
 

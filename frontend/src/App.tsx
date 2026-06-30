@@ -17,8 +17,15 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { analyzeWork, AnalyzeResponse, CandidateWork, Party } from "./lib/api";
-import { buildSearchLinks, SearchLink } from "./lib/searchLinks";
+import {
+  analyzeWork,
+  AnalyzeResponse,
+  CandidateDiscoveryAction,
+  CandidateDiscoveryResponse,
+  CandidateWork,
+  discoverCandidates,
+  Party,
+} from "./lib/api";
 import { cn } from "./lib/utils";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
@@ -74,13 +81,12 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [copyLabel, setCopyLabel] = useState("Copy report");
   const [copiedSearchSource, setCopiedSearchSource] = useState("");
+  const [discovery, setDiscovery] = useState<CandidateDiscoveryResponse | null>(null);
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState("");
 
   const canAnalyze = title.trim().length > 0 && candidates.some((candidate) => candidate.title.trim());
   const topResult = response?.top_result;
-  const searchLinks = useMemo(
-    () => buildSearchLinks({ title, writers, publishers, iswc }),
-    [iswc, publishers, title, writers],
-  );
 
   const workflow = useMemo(
     () => [
@@ -139,8 +145,33 @@ function App() {
     window.setTimeout(() => setCopyLabel("Copy report"), 1600);
   }
 
-  async function copySearchTerm(link: SearchLink) {
-    await navigator.clipboard.writeText(link.searchTerm);
+  async function handleDiscoverCandidates() {
+    setDiscoveryError("");
+    setIsDiscovering(true);
+
+    try {
+      const result = await discoverCandidates({
+        ascap_work: {
+          title,
+          song_code: optional(songCode),
+          iswc: optional(iswc),
+          alternate_titles: [],
+          writers: parseParties(writers),
+          publishers: parseParties(publishers),
+          source_url: null,
+          notes: optional(notes),
+        },
+      });
+      setDiscovery(result);
+    } catch (caught) {
+      setDiscoveryError(caught instanceof Error ? caught.message : "Discovery failed.");
+    } finally {
+      setIsDiscovering(false);
+    }
+  }
+
+  async function copySearchTerm(link: CandidateDiscoveryAction) {
+    await navigator.clipboard.writeText(link.search_term);
     setCopiedSearchSource(link.source);
     window.setTimeout(() => setCopiedSearchSource(""), 1600);
   }
@@ -223,14 +254,37 @@ function App() {
             </Card>
 
             <Card className="glass-line">
-              <CardHeader>
-                <CardTitle>Search Public Repertoire</CardTitle>
-                <p className="mt-1 text-sm text-slate-400">
-                  Generate source searches from the ASCAP work metadata before adding candidates.
-                </p>
+              <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <CardTitle>Search Public Repertoire</CardTitle>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Ask the backend to prepare source searches from the ASCAP work metadata.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={!title.trim() || isDiscovering}
+                  onClick={handleDiscoverCandidates}
+                >
+                  {isDiscovering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                  Find public matches
+                </Button>
               </CardHeader>
               <CardContent className="grid gap-3 md:grid-cols-2">
-                {searchLinks.map((link) => (
+                {discoveryError && (
+                  <div className="rounded-md border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-100 md:col-span-2">
+                    {discoveryError}
+                  </div>
+                )}
+
+                {!discovery && !discoveryError && (
+                  <div className="rounded-lg border border-white/10 bg-slate-950/35 p-4 text-sm leading-6 text-slate-400 md:col-span-2">
+                    Use this step before adding candidates. The app will prepare public-source search actions from the work title, writer, publisher, and ISWC.
+                  </div>
+                )}
+
+                {discovery?.actions.map((link) => (
                   <div
                     key={link.source}
                     className="rounded-lg border border-white/10 bg-slate-950/35 p-4 shadow-inner-glow"
@@ -243,7 +297,7 @@ function App() {
                       <ExternalLink className="h-4 w-4 shrink-0 text-sky-200" />
                     </div>
                     <div className="mb-3 rounded-md border border-white/10 bg-slate-950/55 px-3 py-2 text-sm text-slate-200">
-                      {link.searchTerm}
+                      {link.search_term}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Button type="button" variant="secondary" className="h-9" onClick={() => copySearchTerm(link)}>
@@ -257,6 +311,12 @@ function App() {
                     </div>
                   </div>
                 ))}
+
+                {discovery && (
+                  <p className="rounded-md border border-white/10 bg-white/[0.04] p-3 text-xs leading-5 text-slate-400 md:col-span-2">
+                    {discovery.summary} {discovery.disclaimer}
+                  </p>
+                )}
               </CardContent>
             </Card>
 

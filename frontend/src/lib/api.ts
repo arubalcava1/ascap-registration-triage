@@ -33,6 +33,24 @@ export type AnalyzeRequest = {
   candidates: CandidateWork[];
 };
 
+export type CandidateDiscoveryRequest = {
+  ascap_work: AscapWork;
+};
+
+export type CandidateDiscoveryAction = {
+  source: string;
+  description: string;
+  url: string;
+  search_term: string;
+  search_type: string;
+};
+
+export type CandidateDiscoveryResponse = {
+  actions: CandidateDiscoveryAction[];
+  summary: string;
+  disclaimer: string;
+};
+
 export type Discrepancy = {
   type: string;
   severity: "low" | "medium" | "high";
@@ -91,4 +109,23 @@ export async function analyzeWork(payload: AnalyzeRequest): Promise<AnalyzeRespo
   }
 
   return response.json() as Promise<AnalyzeResponse>;
+}
+
+export async function discoverCandidates(
+  payload: CandidateDiscoveryRequest,
+): Promise<CandidateDiscoveryResponse> {
+  const response = await fetch("/api/discover-candidates", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || `Discovery failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<CandidateDiscoveryResponse>;
 }
