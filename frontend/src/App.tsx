@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ClipboardList,
   Copy,
+  ExternalLink,
   Gauge,
   Link2,
   Loader2,
@@ -17,6 +18,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { analyzeWork, AnalyzeResponse, CandidateWork, Party } from "./lib/api";
+import { buildSearchLinks, SearchLink } from "./lib/searchLinks";
 import { cn } from "./lib/utils";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
@@ -71,9 +73,14 @@ function App() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [copyLabel, setCopyLabel] = useState("Copy report");
+  const [copiedSearchSource, setCopiedSearchSource] = useState("");
 
   const canAnalyze = title.trim().length > 0 && candidates.some((candidate) => candidate.title.trim());
   const topResult = response?.top_result;
+  const searchLinks = useMemo(
+    () => buildSearchLinks({ title, writers, publishers, iswc }),
+    [iswc, publishers, title, writers],
+  );
 
   const workflow = useMemo(
     () => [
@@ -130,6 +137,12 @@ function App() {
     await navigator.clipboard.writeText(response.report_text);
     setCopyLabel("Copied");
     window.setTimeout(() => setCopyLabel("Copy report"), 1600);
+  }
+
+  async function copySearchTerm(link: SearchLink) {
+    await navigator.clipboard.writeText(link.searchTerm);
+    setCopiedSearchSource(link.source);
+    window.setTimeout(() => setCopiedSearchSource(""), 1600);
   }
 
   return (
@@ -206,6 +219,44 @@ function App() {
                     <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
                   </Field>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card className="glass-line">
+              <CardHeader>
+                <CardTitle>Search Public Repertoire</CardTitle>
+                <p className="mt-1 text-sm text-slate-400">
+                  Generate source searches from the ASCAP work metadata before adding candidates.
+                </p>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-2">
+                {searchLinks.map((link) => (
+                  <div
+                    key={link.source}
+                    className="rounded-lg border border-white/10 bg-slate-950/35 p-4 shadow-inner-glow"
+                  >
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-100">{link.source}</h3>
+                        <p className="mt-1 text-xs leading-5 text-slate-400">{link.description}</p>
+                      </div>
+                      <ExternalLink className="h-4 w-4 shrink-0 text-sky-200" />
+                    </div>
+                    <div className="mb-3 rounded-md border border-white/10 bg-slate-950/55 px-3 py-2 text-sm text-slate-200">
+                      {link.searchTerm}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="secondary" className="h-9" onClick={() => copySearchTerm(link)}>
+                        <Copy className="h-4 w-4" />
+                        {copiedSearchSource === link.source ? "Copied" : "Copy term"}
+                      </Button>
+                      <Button type="button" className="h-9" onClick={() => window.open(link.url, "_blank", "noopener")}>
+                        <ExternalLink className="h-4 w-4" />
+                        Open source
+                      </Button>
+                    </div>
+                  </div>
+                ))}
               </CardContent>
             </Card>
 

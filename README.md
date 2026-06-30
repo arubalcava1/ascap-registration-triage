@@ -104,6 +104,7 @@ The final report gives the user a clearer starting point for resolving the issue
 
 * Manual ASCAP work metadata entry
 * Candidate public repertoire record entry
+* Public repertoire search assist links
 * Title normalization and fuzzy title matching
 * Writer name and IPI/CAE comparison
 * Publisher comparison
@@ -118,6 +119,7 @@ The final report gives the user a clearer starting point for resolving the issue
 
 * Chrome extension for capturing visible ASCAP portal metadata
 * Chrome extension capture for visible Songview/ASCAP/BMI result data
+* Automated or semi-automated public candidate discovery, where technically and legally allowed
 * Saved investigations dashboard
 * PDF report export
 * CSV export
