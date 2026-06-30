@@ -24,12 +24,18 @@ def test_analyze_ranks_candidates_and_detects_discrepancies() -> None:
     assert data["top_result"]["rank"] == 1
     assert data["results"][0]["confidence_score"] > data["results"][1]["confidence_score"]
     assert data["results"][0]["confidence_label"] in {"Strong Match", "Possible Match"}
+    assert data["results"][0]["comparison_details"]["ascap_title"] == "the greatest"
+    assert data["results"][0]["comparison_details"]["candidate_title"] == "the greatest"
+    assert "andrew rubalcava" in data["results"][0]["comparison_details"]["ascap_writers"]
 
     discrepancy_types = {item["type"] for item in data["results"][0]["discrepancies"]}
     assert "extra_writer" in discrepancy_types
     assert "iswc_missing_from_ascap_metadata" in discrepancy_types
     assert "writer_share_mismatch" in discrepancy_types
 
+    assert "ASCAP Registration Triage Report" in data["report_text"]
+    assert "Top Candidate" in data["report_text"]
+    assert "GREATEST, THE" in data["report_text"]
     assert "official ASCAP determination" in data["disclaimer"]
 
 

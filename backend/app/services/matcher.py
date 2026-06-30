@@ -4,7 +4,9 @@ from app.schemas import (
     CandidateAnalysisResult,
     CandidateWork,
 )
+from app.services.comparison import build_comparison_details
 from app.services.discrepancy_checker import detect_discrepancies
+from app.services.report_generator import generate_report_text
 from app.services.scoring import confidence_label, score_candidate
 
 
@@ -20,12 +22,14 @@ def analyze_candidates(ascap_work: AscapWork, candidates: list[CandidateWork]) -
     for candidate in candidates:
         score, evidence = score_candidate(ascap_work, candidate)
         discrepancies = detect_discrepancies(ascap_work, candidate)
+        comparison_details = build_comparison_details(ascap_work, candidate)
         unranked_results.append(
             CandidateAnalysisResult(
                 candidate=candidate,
                 rank=0,
                 confidence_score=score,
                 confidence_label=confidence_label(score),
+                comparison_details=comparison_details,
                 matching_evidence=evidence,
                 discrepancies=discrepancies,
             )
@@ -39,11 +43,13 @@ def analyze_candidates(ascap_work: AscapWork, candidates: list[CandidateWork]) -
 
     top_result = ranked_results[0] if ranked_results else None
     summary = _summary(top_result, len(ranked_results))
+    report_text = generate_report_text(ascap_work, ranked_results, DISCLAIMER)
 
     return AnalyzeResponse(
         results=ranked_results,
         top_result=top_result,
         summary=summary,
+        report_text=report_text,
         disclaimer=DISCLAIMER,
     )
 

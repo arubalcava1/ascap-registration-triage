@@ -55,11 +55,23 @@ class MatchingEvidence(BaseModel):
     score_impact: float
 
 
+class NormalizedComparison(BaseModel):
+    ascap_title: str
+    candidate_title: str
+    ascap_iswc: str | None
+    candidate_iswc: str | None
+    ascap_writers: list[str] = Field(default_factory=list)
+    candidate_writers: list[str] = Field(default_factory=list)
+    ascap_publishers: list[str] = Field(default_factory=list)
+    candidate_publishers: list[str] = Field(default_factory=list)
+
+
 class CandidateAnalysisResult(BaseModel):
     candidate: CandidateWork
     rank: int
     confidence_score: float
     confidence_label: str
+    comparison_details: NormalizedComparison
     matching_evidence: list[MatchingEvidence] = Field(default_factory=list)
     discrepancies: list[Discrepancy] = Field(default_factory=list)
 
@@ -68,4 +80,5 @@ class AnalyzeResponse(BaseModel):
     results: list[CandidateAnalysisResult]
     top_result: CandidateAnalysisResult | None
     summary: str
+    report_text: str
     disclaimer: str

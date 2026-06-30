@@ -378,6 +378,9 @@ npm install
 npm run dev
 ```
 
+The frontend dev server proxies `/api` requests to the FastAPI backend at `http://127.0.0.1:8000`.
+Start the backend first, then open the Vite URL printed by `npm run dev`.
+
 ---
 
 ## Roadmap
