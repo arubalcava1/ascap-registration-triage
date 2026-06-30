@@ -158,10 +158,10 @@ Or:
 
 ```text
 ASCAP Portal Writer:
-Andrew Rubalcava
+Alex Rivera
 
 Public Repertoire Writer:
-A. Rubalcava
+A. Rivera
 ```
 
 The tool must normalize text, compare identifiers, calculate similarity, detect discrepancies, and rank candidate matches in a way that is useful to a human reviewer.
@@ -194,7 +194,7 @@ Inside the ASCAP portal, the work shows:
 ```text
 Title: THE GREATEST
 Song Code: 123456789
-Writers: Andrew Rubalcava, Jane Smith
+Writers: Alex Rivera, Jane Smith
 Publishers: Example Publishing
 Shares: 50% / 50%
 ISWC: Not shown
@@ -204,7 +204,7 @@ The user searches public repertoire records and finds a candidate work:
 
 ```text
 Title: GREATEST, THE
-Writers: Andrew Rubalcava, Jane Smith, Mark Lee
+Writers: Alex Rivera, Jane Smith, Mark Lee
 Publishers: Example Publishing, Other Music Publishing
 Shares: 33.33% / 33.33% / 33.34%
 ISWC: T-123456789-0

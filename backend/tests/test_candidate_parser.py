@@ -16,7 +16,7 @@ Title: GREATEST, THE
 Work ID: SV-12345
 ISWC: T-123456789-0
 Writers:
-Andrew Rubalcava | 33.33%
+Alex Rivera | 33.33%
 Jane Smith | 33.33%
 Mark Lee | 33.34%
 Publishers:
@@ -63,3 +63,184 @@ def test_parse_candidate_returns_warnings_for_missing_fields() -> None:
     assert "No writers were parsed from the pasted text." in data["warnings"]
     assert "No publishers were parsed from the pasted text." in data["warnings"]
     assert "No ISWC was parsed from the pasted text." in data["warnings"]
+
+
+def test_parse_candidate_from_bmi_repertoire_detail_text() -> None:
+    response = client.post(
+        "/api/parse-candidate",
+        json={
+            "source": "BMI Repertoire",
+            "raw_text": """
+Title
+SANTERIA
+BMI Work ID 3800344
+SV Status Reconciled
+ISWC
+T0709421237
+Writers / Composers
+GAUGH FLOYD I BMI 00196147445
+NOWELL BRADLEY JAMES BMI 00183755932
+WILSON ERIC JOHN BMI 00196150560
+Publishers
+ERIC JOHN WILSON PUBLISHING BMI 00196381143
+FLOYD I GAUGH IV PUBLISHING BMI 00196381339
+GASOLINE ALLEY MUSIC BMI 0018019076
+LOU DOG PUBLISHING BMI 00183746051
+SONGS OF UNIVERSAL INC BMI 00353271280
+Performers
+SUBLIME
+""",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["candidate"]["title"] == "SANTERIA"
+    assert data["candidate"]["public_work_id"] == "3800344"
+    assert data["candidate"]["iswc"] == "T0709421237"
+    assert data["candidate"]["status"] == "Reconciled"
+    assert len(data["candidate"]["writers"]) == 3
+    assert data["candidate"]["writers"][0]["name"] == "GAUGH FLOYD I"
+    assert data["candidate"]["writers"][0]["ipi_cae"] == "00196147445"
+    assert len(data["candidate"]["publishers"]) == 5
+    assert data["candidate"]["publishers"][0]["name"] == "ERIC JOHN WILSON PUBLISHING"
+    assert data["warnings"] == []
+
+
+def test_parse_candidate_from_bmi_copied_table_selection() -> None:
+    response = client.post(
+        "/api/parse-candidate",
+        json={
+            "source": "Songview",
+            "raw_text": """
+Title BMI Work ID SV Status Writer / Composer Performer Expand
+BMI Award Winning Song
+GREATEST AMERICAN HERO 102809
+GEYER STEPHEN G
+POST MIKE
+TOTAL %
+CONTROLLED
+BMI 93.75%
+ASCAP 0%
+WORK ID 102809
+ISWC
+T9303796998
+Writers / Composers
+% CONTROLLED BMI: 50%
+NAME AFFILIATION IPI #
+GEYER STEPHEN G BMI 66901174
+POST MIKE BMI 24768767
+Performers
+BEECHMAN LAURIE
+JOEY SCARBURY
+MARK STAN
+Publishers
+% CONTROLLED BMI: 43.75%
+NAME AFFILIATION IPI #
+DARJEN MUSIC BMI 60805791
+EMI BLACKWOOD MUSIC INC BMI 223437493
+STEPHEN CANNELL MUSIC BMI 52437494
+Additional Non-BMI Publishers
+Alternate Titles
+BELIEVE IT OR NOT
+MAIN TITLE FROM TV SHOW THE GREATEST AMERICAN HERO
+""",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["candidate"]["title"] == "GREATEST AMERICAN HERO"
+    assert data["candidate"]["public_work_id"] == "102809"
+    assert data["candidate"]["iswc"] == "T9303796998"
+    assert [writer["name"] for writer in data["candidate"]["writers"]] == [
+        "GEYER STEPHEN G",
+        "POST MIKE",
+    ]
+    assert [publisher["name"] for publisher in data["candidate"]["publishers"]] == [
+        "DARJEN MUSIC",
+        "EMI BLACKWOOD MUSIC INC",
+        "STEPHEN CANNELL MUSIC",
+    ]
+    assert all(writer["name"] != ":" for writer in data["candidate"]["writers"])
+    assert all(publisher["name"] != ":" for publisher in data["candidate"]["publishers"])
+    assert "No ISWC was parsed from the pasted text." not in data["warnings"]
+
+
+def test_parse_candidate_from_ascap_copied_result_selection() -> None:
+    response = client.post(
+        "/api/parse-candidate",
+        json={
+            "source": "ASCAP Repertory",
+            "raw_text": """
+THE GREATEST
+ISWC: T9019887935
+Work ID: 423537515
+Total Current ASCAP Share: 100%
+Total Current BMI Share: 0%
+Songview Logo
+Writers
+ASCAP controls: 50% BMI controls: 0%
+PRO IPI
+ALIYU IBRAHIM BOLAJI ASCAP 556833128
+Performers
+WORLDSTAR
+Publishers
+ASCAP controls: 50% BMI controls: 0%
+PRO IPI
+WORLD WIDE VISIONARYENTERTAINMENT INC ASCAP 556798195
+Contact Info
+""",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["candidate"]["title"] == "THE GREATEST"
+    assert data["candidate"]["public_work_id"] == "423537515"
+    assert data["candidate"]["iswc"] == "T9019887935"
+    assert data["candidate"]["status"] is None
+    assert data["candidate"]["writers"] == [
+        {
+            "name": "ALIYU IBRAHIM BOLAJI",
+            "ipi_cae": "556833128",
+            "share": None,
+        }
+    ]
+    assert data["candidate"]["publishers"] == [
+        {
+            "name": "WORLD WIDE VISIONARYENTERTAINMENT INC",
+            "ipi_cae": "556798195",
+            "share": None,
+        }
+    ]
+
+
+def test_parse_candidate_from_ascap_label_without_colon() -> None:
+    response = client.post(
+        "/api/parse-candidate",
+        json={
+            "source": "ASCAP Repertory",
+            "raw_text": """
+Title THE GREATEST
+ISWC T9019887935
+Work ID 423537515
+Writers
+ALIYU IBRAHIM BOLAJI ASCAP 556833128
+Publishers
+WORLD WIDE VISIONARYENTERTAINMENT INC ASCAP 556798195
+""",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["candidate"]["title"] == "THE GREATEST"
+    assert data["candidate"]["public_work_id"] == "423537515"
+    assert data["candidate"]["iswc"] == "T9019887935"
+    assert data["candidate"]["writers"][0]["name"] == "ALIYU IBRAHIM BOLAJI"
+    assert data["candidate"]["publishers"][0]["name"] == "WORLD WIDE VISIONARYENTERTAINMENT INC"

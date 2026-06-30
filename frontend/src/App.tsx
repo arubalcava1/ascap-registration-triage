@@ -46,18 +46,6 @@ type CandidateDraft = {
   rawNotes: string;
 };
 
-const initialCandidate: CandidateDraft = {
-  source: "Songview",
-  title: "GREATEST, THE",
-  publicWorkId: "SV-12345",
-  iswc: "T-123456789-0",
-  writers: "Andrew Rubalcava | 33.33\nJane Smith | 33.33\nMark Lee | 33.34",
-  publishers: "Example Publishing\nOther Music Publishing",
-  status: "",
-  sourceUrl: "",
-  rawNotes: "",
-};
-
 const emptyCandidate: CandidateDraft = {
   source: "ASCAP Repertory",
   title: "",
@@ -74,10 +62,11 @@ function App() {
   const [title, setTitle] = useState("THE GREATEST");
   const [songCode, setSongCode] = useState("123456789");
   const [iswc, setIswc] = useState("");
-  const [writers, setWriters] = useState("Andrew Rubalcava | 50\nJane Smith | 50");
-  const [publishers, setPublishers] = useState("Example Publishing | 100");
+  const [performer, setPerformer] = useState("");
+  const [writers, setWriters] = useState("Alex Rivera | 50\nJordan Lee | 50");
+  const [publishers, setPublishers] = useState("Example Music Publishing | 100");
   const [notes, setNotes] = useState("");
-  const [candidates, setCandidates] = useState<CandidateDraft[]>([initialCandidate]);
+  const [candidates, setCandidates] = useState<CandidateDraft[]>([]);
   const [response, setResponse] = useState<AnalyzeResponse | null>(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -91,6 +80,8 @@ function App() {
   const [parseResult, setParseResult] = useState<CandidateParseResponse | null>(null);
   const [parseError, setParseError] = useState("");
   const [isParsingCandidate, setIsParsingCandidate] = useState(false);
+  const [openedSources, setOpenedSources] = useState<string[]>([]);
+  const [parsedSources, setParsedSources] = useState<string[]>([]);
 
   const canAnalyze = title.trim().length > 0 && candidates.some((candidate) => candidate.title.trim());
   const topResult = response?.top_result;
@@ -168,8 +159,11 @@ function App() {
           source_url: null,
           notes: optional(notes),
         },
+        performer: optional(performer),
       });
       setDiscovery(result);
+      setOpenedSources([]);
+      setParsedSources([]);
     } catch (caught) {
       setDiscoveryError(caught instanceof Error ? caught.message : "Discovery failed.");
     } finally {
@@ -178,9 +172,20 @@ function App() {
   }
 
   async function copySearchTerm(link: CandidateDiscoveryAction) {
-    await navigator.clipboard.writeText(link.search_term);
+    await navigator.clipboard.writeText(primarySearchCopyValue(link));
     setCopiedSearchSource(link.source);
     window.setTimeout(() => setCopiedSearchSource(""), 1600);
+  }
+
+  function useDiscoverySource(link: CandidateDiscoveryAction) {
+    setPasteSource(parseSourceFromDiscovery(link));
+    setParseResult(null);
+    setParseError("");
+  }
+
+  function openDiscoverySource(link: CandidateDiscoveryAction) {
+    setOpenedSources((current) => uniqueValues([...current, link.source]));
+    window.open(link.url, "_blank", "noopener");
   }
 
   async function handleParseCandidate() {
@@ -194,6 +199,8 @@ function App() {
       });
       setParseResult(result);
       setCandidates((current) => [...current, candidateToDraft(result.candidate)]);
+      setParsedSources((current) => uniqueValues([...current, pasteSource]));
+      setPasteText("");
     } catch (caught) {
       setParseError(caught instanceof Error ? caught.message : "Candidate parsing failed.");
     } finally {
@@ -244,9 +251,9 @@ function App() {
           </div>
         </header>
 
-        <form className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]" onSubmit={handleSubmit}>
-          <section className="flex flex-col gap-6">
-            <Card className="glass-line">
+        <form className="grid gap-6" onSubmit={handleSubmit}>
+          <section className="grid gap-6 xl:grid-cols-2">
+            <Card className="glass-line h-full">
               <CardHeader className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>ASCAP Work Metadata</CardTitle>
@@ -265,6 +272,9 @@ function App() {
                   <Field label="ISWC">
                     <Input placeholder="Not shown" value={iswc} onChange={(event) => setIswc(event.target.value)} />
                   </Field>
+                  <Field label="Known performer / artist">
+                    <Input placeholder="Optional" value={performer} onChange={(event) => setPerformer(event.target.value)} />
+                  </Field>
                   <Field label="Writers" className="md:col-span-2">
                     <Textarea value={writers} onChange={(event) => setWriters(event.target.value)} />
                   </Field>
@@ -278,79 +288,181 @@ function App() {
               </CardContent>
             </Card>
 
-            <Card className="glass-line">
-              <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <CardTitle>Search Public Repertoire</CardTitle>
-                  <p className="mt-1 text-sm text-slate-400">
-                    Ask the backend to prepare source searches from the ASCAP work metadata.
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={!title.trim() || isDiscovering}
-                  onClick={handleDiscoverCandidates}
-                >
-                  {isDiscovering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                  Find public matches
-                </Button>
-              </CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-2">
-                {discoveryError && (
-                  <div className="rounded-md border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-100 md:col-span-2">
-                    {discoveryError}
-                  </div>
-                )}
+            <div className="grid h-full gap-6">
+              <Card className="glass-line">
+                <CardHeader>
+                  <CardTitle>Run Investigation</CardTitle>
+                  <p className="mt-1 text-sm text-slate-400">The frontend posts directly to the backend MVP endpoint.</p>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-4">
+                  <Button type="submit" disabled={!canAnalyze || isLoading} className="h-12 w-full">
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gauge className="h-4 w-4" />}
+                    Analyze candidates
+                  </Button>
 
-                {!discovery && !discoveryError && (
-                  <div className="rounded-lg border border-white/10 bg-slate-950/35 p-4 text-sm leading-6 text-slate-400 md:col-span-2">
-                    Use this step before adding candidates. The app will prepare public-source search actions from the work title, writer, publisher, and ISWC.
-                  </div>
-                )}
+                  {error && (
+                    <div className="rounded-md border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-100">
+                      {error}
+                    </div>
+                  )}
 
-                {discovery?.actions.map((link) => (
-                  <div
-                    key={link.source}
-                    className="rounded-lg border border-white/10 bg-slate-950/35 p-4 shadow-inner-glow"
+                  <AnimatePresence mode="wait">
+                    {topResult ? (
+                      <motion.div
+                        key="score"
+                        initial={{ opacity: 0, y: 12, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -8, scale: 0.98 }}
+                        className="rounded-lg border border-sky-300/25 bg-sky-300/10 p-5 shadow-glow"
+                      >
+                        <div className="mb-4 flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm text-sky-100">Top candidate</p>
+                            <h2 className="mt-1 text-xl font-semibold text-white">{topResult.candidate.title}</h2>
+                          </div>
+                          <Sparkles className="h-5 w-5 text-sky-200" />
+                        </div>
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: `${Math.min(topResult.confidence_score, 100)}%` }}
+                          className="mb-3 h-2 rounded-full bg-sky-300"
+                        />
+                        <div className="flex items-end justify-between">
+                          <div className="text-sm text-slate-300">{topResult.confidence_label}</div>
+                          <div className="text-3xl font-semibold text-white">
+                            {topResult.confidence_score.toFixed(0)}%
+                          </div>
+                        </div>
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key="empty"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="rounded-lg border border-white/10 bg-slate-950/35 p-5 text-sm text-slate-400"
+                      >
+                        Results will appear here after analysis.
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {response && (
+                    <div className="space-y-3">
+                      <p className="text-sm text-slate-300">{response.summary}</p>
+                      <p className="rounded-md border border-white/10 bg-white/[0.04] p-3 text-xs leading-5 text-slate-400">
+                        {response.disclaimer}
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className="glass-line">
+                <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <CardTitle>Search Public Repertoire</CardTitle>
+                    <p className="mt-1 text-sm text-slate-400">
+                      Ask the backend to prepare source searches from the ASCAP work metadata.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={!title.trim() || isDiscovering}
+                    onClick={handleDiscoverCandidates}
                   >
-                    <div className="mb-3 flex items-start justify-between gap-3">
-                      <div>
-                        <h3 className="text-sm font-semibold text-slate-100">{link.source}</h3>
-                        <p className="mt-1 text-xs leading-5 text-slate-400">{link.description}</p>
+                    {isDiscovering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                    Find public matches
+                  </Button>
+                </CardHeader>
+                <CardContent className="grid gap-3">
+                  {discoveryError && (
+                    <div className="rounded-md border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-100 md:col-span-2">
+                      {discoveryError}
+                    </div>
+                  )}
+
+                  {!discovery && !discoveryError && (
+                    <div className="rounded-lg border border-white/10 bg-slate-950/35 p-4 text-sm leading-6 text-slate-400 md:col-span-2">
+                      Use this step before adding candidates. The app will prepare public-source search actions from the work title, writer, publisher, and ISWC.
+                    </div>
+                  )}
+
+                  {discovery?.actions.map((link) => {
+                    const status = sourceWorkflowStatus({
+                      link,
+                      openedSources,
+                      parsedSources,
+                      pasteSource,
+                      pasteText,
+                      candidates,
+                    });
+
+                    return (
+                    <div
+                      key={link.source}
+                      className="rounded-lg border border-white/10 bg-slate-950/35 p-4 shadow-inner-glow"
+                    >
+                      <div className="mb-3 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="mb-2 flex flex-wrap items-center gap-2">
+                            <h3 className="text-sm font-semibold text-slate-100">{link.source}</h3>
+                            <span className={cn("rounded-md border px-2 py-1 text-[11px]", status.className)}>
+                              {status.label}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs leading-5 text-slate-400">{link.description}</p>
+                        </div>
+                        <CheckCircle2 className={cn("h-4 w-4 shrink-0", status.iconClassName)} />
                       </div>
-                      <ExternalLink className="h-4 w-4 shrink-0 text-sky-200" />
+                      <div className="mb-3 grid gap-2 rounded-md border border-white/10 bg-slate-950/55 px-3 py-2 text-sm text-slate-200">
+                        {Object.entries(link.search_fields).length > 0 ? (
+                          Object.entries(link.search_fields).map(([field, value]) => (
+                            <div key={field} className="flex gap-2">
+                              <span className="min-w-20 text-slate-500">{field}</span>
+                              <span>{value}</span>
+                            </div>
+                          ))
+                        ) : (
+                          link.search_term
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="secondary" className="h-9" onClick={() => copySearchTerm(link)}>
+                          <Copy className="h-4 w-4" />
+                          {copiedSearchSource === link.source ? "Copied" : "Copy term"}
+                        </Button>
+                        <Button type="button" variant="secondary" className="h-9" onClick={() => useDiscoverySource(link)}>
+                          <ClipboardList className="h-4 w-4" />
+                          Use for paste
+                        </Button>
+                        <Button type="button" className="h-9" onClick={() => openDiscoverySource(link)}>
+                          <ExternalLink className="h-4 w-4" />
+                          Open source
+                        </Button>
+                      </div>
                     </div>
-                    <div className="mb-3 rounded-md border border-white/10 bg-slate-950/55 px-3 py-2 text-sm text-slate-200">
-                      {link.search_term}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button type="button" variant="secondary" className="h-9" onClick={() => copySearchTerm(link)}>
-                        <Copy className="h-4 w-4" />
-                        {copiedSearchSource === link.source ? "Copied" : "Copy term"}
-                      </Button>
-                      <Button type="button" className="h-9" onClick={() => window.open(link.url, "_blank", "noopener")}>
-                        <ExternalLink className="h-4 w-4" />
-                        Open source
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                    );
+                  })}
 
-                {discovery && (
-                  <p className="rounded-md border border-white/10 bg-white/[0.04] p-3 text-xs leading-5 text-slate-400 md:col-span-2">
-                    {discovery.summary} {discovery.disclaimer}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+                  {discovery && (
+                    <p className="rounded-md border border-white/10 bg-white/[0.04] p-3 text-xs leading-5 text-slate-400 md:col-span-2">
+                      {discovery.summary} {discovery.disclaimer}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </section>
 
-            <Card className="glass-line">
+          <section className="grid gap-6 xl:grid-cols-2">
+
+            <Card className="glass-line h-full">
               <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>Paste Public Result</CardTitle>
                   <p className="mt-1 text-sm text-slate-400">
-                    Paste visible public repertoire text and convert it into an editable candidate.
+                    {pasteSourceGuidance(pasteSource)}
                   </p>
                 </div>
                 <Button
@@ -365,14 +477,22 @@ function App() {
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-3">
                 <Field label="Source">
-                  <Input value={pasteSource} onChange={(event) => setPasteSource(event.target.value)} />
+                  <select
+                    className="h-10 w-full rounded-md border border-white/10 bg-slate-950/55 px-3 text-sm text-slate-100 shadow-inner-glow outline-none transition focus:border-sky-300/50 focus:ring-2 focus:ring-sky-300/15"
+                    value={pasteSource}
+                    onChange={(event) => setPasteSource(event.target.value)}
+                  >
+                    <option>Songview</option>
+                    <option>BMI Repertoire</option>
+                    <option>ASCAP Repertory</option>
+                  </select>
                 </Field>
                 <Field label="Copied public result text" className="md:col-span-2">
                   <Textarea
                     className="min-h-36"
                     value={pasteText}
                     onChange={(event) => setPasteText(event.target.value)}
-                    placeholder={"Title: GREATEST, THE\nISWC: T-123456789-0\nWriters:\nAndrew Rubalcava | 33.33%"}
+                    placeholder={pasteSourcePlaceholder(pasteSource)}
                   />
                 </Field>
 
@@ -400,7 +520,7 @@ function App() {
               </CardContent>
             </Card>
 
-            <Card className="glass-line">
+            <Card className="glass-line h-full">
               <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>Public Repertoire Candidates</CardTitle>
@@ -416,15 +536,36 @@ function App() {
                 </Button>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
+                {candidates.length === 0 && (
+                  <div className="rounded-lg border border-white/10 bg-slate-950/35 p-5 text-sm leading-6 text-slate-400">
+                    No public candidates have been added yet. Paste a public repertoire result or add a blank candidate before running analysis.
+                  </div>
+                )}
+
                 {candidates.map((candidate, index) => (
                   <div
                     key={index}
                     className="rounded-lg border border-white/10 bg-slate-950/35 p-4 shadow-inner-glow"
                   >
                     <div className="mb-4 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 text-sm font-medium text-slate-200">
-                        <Search className="h-4 w-4 text-sky-200" />
-                        Candidate {index + 1}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-sm font-medium text-slate-200">
+                          <Search className="h-4 w-4 text-sky-200" />
+                          Candidate {index + 1}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <span className="rounded-md border border-sky-300/20 bg-sky-300/10 px-2 py-1 text-[11px] text-sky-100">
+                            {candidate.source || "Public source"}
+                          </span>
+                          {candidateReadiness(candidate).map((item) => (
+                            <span
+                              key={item.label}
+                              className={cn("rounded-md border px-2 py-1 text-[11px]", item.className)}
+                            >
+                              {item.label}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                       {candidates.length > 1 && (
                         <Button
@@ -441,7 +582,7 @@ function App() {
                         </Button>
                       )}
                     </div>
-                    <div className="grid gap-4 md:grid-cols-4">
+                    <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
                       <Field label="Source">
                         <Input
                           value={candidate.source}
@@ -490,7 +631,7 @@ function App() {
                           onChange={(event) => updateCandidate(index, { publishers: event.target.value })}
                         />
                       </Field>
-                      <Field label="Raw notes" className="md:col-span-4">
+                      <Field label="Raw notes" className="md:col-span-2 2xl:col-span-4">
                         <Textarea
                           value={candidate.rawNotes}
                           onChange={(event) => updateCandidate(index, { rawNotes: event.target.value })}
@@ -502,85 +643,38 @@ function App() {
               </CardContent>
             </Card>
           </section>
-
-          <aside className="flex flex-col gap-6">
-            <Card className="glass-line sticky top-6">
-              <CardHeader>
-                <CardTitle>Run Investigation</CardTitle>
-                <p className="mt-1 text-sm text-slate-400">The frontend posts directly to the backend MVP endpoint.</p>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-4">
-                <Button type="submit" disabled={!canAnalyze || isLoading} className="h-12 w-full">
-                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Gauge className="h-4 w-4" />}
-                  Analyze candidates
-                </Button>
-
-                {error && (
-                  <div className="rounded-md border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-100">
-                    {error}
-                  </div>
-                )}
-
-                <AnimatePresence mode="wait">
-                  {topResult ? (
-                    <motion.div
-                      key="score"
-                      initial={{ opacity: 0, y: 12, scale: 0.98 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -8, scale: 0.98 }}
-                      className="rounded-lg border border-sky-300/25 bg-sky-300/10 p-5 shadow-glow"
-                    >
-                      <div className="mb-4 flex items-start justify-between gap-4">
-                        <div>
-                          <p className="text-sm text-sky-100">Top candidate</p>
-                          <h2 className="mt-1 text-xl font-semibold text-white">{topResult.candidate.title}</h2>
-                        </div>
-                        <Sparkles className="h-5 w-5 text-sky-200" />
-                      </div>
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${Math.min(topResult.confidence_score, 100)}%` }}
-                        className="mb-3 h-2 rounded-full bg-sky-300"
-                      />
-                      <div className="flex items-end justify-between">
-                        <div className="text-sm text-slate-300">{topResult.confidence_label}</div>
-                        <div className="text-3xl font-semibold text-white">
-                          {topResult.confidence_score.toFixed(0)}%
-                        </div>
-                      </div>
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="empty"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="rounded-lg border border-white/10 bg-slate-950/35 p-5 text-sm text-slate-400"
-                    >
-                      Results will appear here after analysis.
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {response && (
-                  <div className="space-y-3">
-                    <p className="text-sm text-slate-300">{response.summary}</p>
-                    <p className="rounded-md border border-white/10 bg-white/[0.04] p-3 text-xs leading-5 text-slate-400">
-                      {response.disclaimer}
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </aside>
         </form>
 
         {response && (
           <section className="grid gap-4">
+            <Card className={cn("glass-line", decisionPanelClass(response.review_decision.severity))}>
+              <CardContent className="grid gap-4 p-5 lg:grid-cols-[0.8fr_1.2fr]">
+                <div>
+                  <div className="mb-2 text-xs uppercase tracking-[0.18em] text-slate-500">Review decision</div>
+                  <div className="text-2xl font-semibold text-white">{response.review_decision.label}</div>
+                  <div className="mt-2 text-sm text-slate-300">
+                    Decision score: {response.review_decision.confidence_score.toFixed(0)}%
+                  </div>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-slate-950/30 p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-200">
+                    <CheckCircle2 className={cn("h-4 w-4", decisionIconClass(response.review_decision.severity))} />
+                    Why this decision
+                  </div>
+                  <ul className="space-y-2 text-sm leading-5 text-slate-400">
+                    {response.review_decision.rationale.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              </CardContent>
+            </Card>
+
             <div className="flex items-center gap-3">
               <ArrowDown className="h-4 w-4 text-sky-200" />
               <h2 className="text-lg font-semibold text-white">Ranked candidate results</h2>
             </div>
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className={cn("grid gap-4", response.results.length > 1 && "lg:grid-cols-2")}>
               {response.results.map((result) => (
                 <motion.article
                   key={`${result.rank}-${result.candidate.title}`}
@@ -694,6 +788,26 @@ function ScorePill({ score, label }: { score: number; label: string }) {
   );
 }
 
+function decisionPanelClass(severity: "success" | "warning" | "danger"): string {
+  if (severity === "success") {
+    return "border-emerald-300/25 bg-emerald-300/[0.06]";
+  }
+  if (severity === "danger") {
+    return "border-rose-300/25 bg-rose-300/[0.06]";
+  }
+  return "border-amber-300/25 bg-amber-300/[0.06]";
+}
+
+function decisionIconClass(severity: "success" | "warning" | "danger"): string {
+  if (severity === "success") {
+    return "text-emerald-200";
+  }
+  if (severity === "danger") {
+    return "text-rose-200";
+  }
+  return "text-amber-200";
+}
+
 function ResultList({
   icon,
   title,
@@ -779,6 +893,158 @@ function formatParties(parties: Party[]): string {
 function optional(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function primarySearchCopyValue(link: CandidateDiscoveryAction): string {
+  return (
+    link.search_fields.title ??
+    link.search_fields.iswc ??
+    link.search_fields.writer ??
+    link.search_fields.publisher ??
+    link.search_term
+  );
+}
+
+function parseSourceFromDiscovery(link: CandidateDiscoveryAction): string {
+  const source = link.source.toLowerCase();
+  if (source.includes("bmi")) {
+    return "BMI Repertoire";
+  }
+  if (source.includes("ascap")) {
+    return "ASCAP Repertory";
+  }
+  return "Songview";
+}
+
+function pasteSourceGuidance(source: string): string {
+  if (source === "ASCAP Repertory") {
+    return "Paste the visible ASCAP result panel after opening the matching repertoire record.";
+  }
+  if (source === "BMI Repertoire") {
+    return "Paste the expanded BMI or Songview result details after opening the matching record.";
+  }
+  return "Paste the visible Songview result details and convert them into an editable candidate.";
+}
+
+function pasteSourcePlaceholder(source: string): string {
+  if (source === "ASCAP Repertory") {
+    return [
+      "THE GREATEST",
+      "ISWC: T9019887935",
+      "Work ID: 423537515",
+      "Total Current ASCAP Share: 100%",
+      "Writers",
+      "ASCAP controls: 50% BMI controls: 0%",
+      "PRO IPI",
+      "ALEX RIVERA ASCAP 123456789",
+      "Publishers",
+      "EXAMPLE MUSIC PUBLISHING ASCAP 987654321",
+      "Performers",
+      "EXAMPLE ARTIST",
+    ].join("\n");
+  }
+
+  if (source === "BMI Repertoire") {
+    return [
+      "Title BMI Work ID SV Status Writer / Composer Performer Expand",
+      "GREATEST AMERICAN HERO 102809",
+      "ALEX RIVERA",
+      "JORDAN LEE",
+      "WORK ID 102809",
+      "ISWC",
+      "T9303796998",
+      "Writers / Composers",
+      "% CONTROLLED BMI: 50%",
+      "ALEX RIVERA BMI 12345678",
+      "JORDAN LEE BMI 87654321",
+      "Publishers",
+      "% CONTROLLED BMI: 50%",
+      "EXAMPLE MUSIC PUBLISHING BMI 23456789",
+    ].join("\n");
+  }
+
+  return [
+    "THE GREATEST",
+    "ISWC: T9019887935",
+    "Work ID: 423537515",
+    "Writers",
+    "ALEX RIVERA ASCAP 123456789",
+    "Publishers",
+    "EXAMPLE MUSIC PUBLISHING ASCAP 987654321",
+    "Alternate Titles",
+    "GREATEST, THE",
+  ].join("\n");
+}
+
+function sourceWorkflowStatus({
+  link,
+  openedSources,
+  parsedSources,
+  pasteSource,
+  pasteText,
+  candidates,
+}: {
+  link: CandidateDiscoveryAction;
+  openedSources: string[];
+  parsedSources: string[];
+  pasteSource: string;
+  pasteText: string;
+  candidates: CandidateDraft[];
+}) {
+  const parsedSource = parseSourceFromDiscovery(link);
+  const hasCandidate = candidates.some((candidate) => candidate.source === parsedSource && candidate.title.trim());
+
+  if (hasCandidate || parsedSources.includes(parsedSource)) {
+    return {
+      label: "Added",
+      className: "border-emerald-300/30 bg-emerald-300/10 text-emerald-100",
+      iconClassName: "text-emerald-200",
+    };
+  }
+
+  if (pasteSource === parsedSource && pasteText.trim()) {
+    return {
+      label: "Pasted",
+      className: "border-sky-300/30 bg-sky-300/10 text-sky-100",
+      iconClassName: "text-sky-200",
+    };
+  }
+
+  if (openedSources.includes(link.source)) {
+    return {
+      label: "Opened",
+      className: "border-amber-300/30 bg-amber-300/10 text-amber-100",
+      iconClassName: "text-amber-200",
+    };
+  }
+
+  return {
+    label: "Not searched",
+    className: "border-white/10 bg-white/[0.04] text-slate-400",
+    iconClassName: "text-slate-500",
+  };
+}
+
+function candidateReadiness(candidate: CandidateDraft) {
+  return [
+    readinessBadge("Title", Boolean(candidate.title.trim())),
+    readinessBadge("ISWC", Boolean(candidate.iswc.trim())),
+    readinessBadge("Writers", Boolean(candidate.writers.trim())),
+    readinessBadge("Publishers", Boolean(candidate.publishers.trim())),
+  ];
+}
+
+function readinessBadge(label: string, ready: boolean) {
+  return {
+    label: ready ? `Has ${label}` : `Missing ${label}`,
+    className: ready
+      ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-100"
+      : "border-white/10 bg-white/[0.035] text-slate-500",
+  };
+}
+
+function uniqueValues(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
 }
 
 export default App;

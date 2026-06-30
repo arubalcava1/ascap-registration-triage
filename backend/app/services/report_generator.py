@@ -1,9 +1,10 @@
-from app.schemas import AscapWork, CandidateAnalysisResult
+from app.schemas import AscapWork, CandidateAnalysisResult, ReviewDecision
 
 
 def generate_report_text(
     ascap_work: AscapWork,
     results: list[CandidateAnalysisResult],
+    review_decision: ReviewDecision,
     disclaimer: str,
 ) -> str:
     lines = [
@@ -18,7 +19,14 @@ def generate_report_text(
         f"Writers: {_party_names(ascap_work.writers)}",
         f"Publishers: {_party_names(ascap_work.publishers)}",
         "",
+        "Review Decision",
+        "---------------",
+        f"Decision: {review_decision.label}",
+        f"Decision Score: {review_decision.confidence_score}%",
+        "Why:",
     ]
+    lines.extend(_prefixed_lines(review_decision.rationale))
+    lines.append("")
 
     if results:
         top_result = results[0]

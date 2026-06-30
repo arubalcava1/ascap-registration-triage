@@ -35,6 +35,7 @@ export type AnalyzeRequest = {
 
 export type CandidateDiscoveryRequest = {
   ascap_work: AscapWork;
+  performer: string | null;
 };
 
 export type CandidateDiscoveryAction = {
@@ -43,6 +44,7 @@ export type CandidateDiscoveryAction = {
   url: string;
   search_term: string;
   search_type: string;
+  search_fields: Record<string, string>;
 };
 
 export type CandidateDiscoveryResponse = {
@@ -97,9 +99,17 @@ export type CandidateAnalysisResult = {
   discrepancies: Discrepancy[];
 };
 
+export type ReviewDecision = {
+  label: "Likely Same Work" | "Needs Manual Review" | "Likely Different Work";
+  severity: "success" | "warning" | "danger";
+  confidence_score: number;
+  rationale: string[];
+};
+
 export type AnalyzeResponse = {
   results: CandidateAnalysisResult[];
   top_result: CandidateAnalysisResult | null;
+  review_decision: ReviewDecision;
   summary: string;
   report_text: string;
   disclaimer: string;

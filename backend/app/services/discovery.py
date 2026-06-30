@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 from app.schemas import (
     AscapWork,
     CandidateDiscoveryAction,
@@ -7,42 +9,44 @@ from app.schemas import (
 
 ASCAP_REPERTORY_URL = "https://www.ascap.com/repertory"
 BMI_REPERTOIRE_URL = "https://repertoire.bmi.com/"
-SONGVIEW_URL = "https://songview.com/"
-
 DISCOVERY_DISCLAIMER = (
     "Discovery actions open public repertoire search pages and prepare search terms. "
     "They do not scrape public sites, access private systems, or guarantee that a candidate match exists."
 )
 
 
-def discover_candidate_actions(ascap_work: AscapWork) -> CandidateDiscoveryResponse:
+def discover_candidate_actions(
+    ascap_work: AscapWork,
+    performer: str | None = None,
+) -> CandidateDiscoveryResponse:
     title_term = ascap_work.title.strip()
+    performer_term = (performer or "").strip()
     writer_term = _first_party_name(ascap_work.writers)
     publisher_term = _first_party_name(ascap_work.publishers)
     iswc_term = (ascap_work.iswc or "").strip()
     title_writer_term = " ".join(part for part in [title_term, writer_term] if part)
+    ascap_title_performer_url = _ascap_title_performer_url(title_term, performer_term)
 
     possible_actions = [
         CandidateDiscoveryAction(
-            source="Songview overview",
-            description="Open Songview and choose ASCAP or BMI public repertoire search.",
-            url=SONGVIEW_URL,
-            search_term=title_writer_term or title_term or iswc_term,
-            search_type="title_writer",
-        ),
-        CandidateDiscoveryAction(
             source="ASCAP repertory",
-            description="Search ASCAP public repertory using the title, writer, publisher, or ISWC.",
-            url=ASCAP_REPERTORY_URL,
-            search_term=title_writer_term or title_term or iswc_term,
-            search_type="title_writer",
+            description="Search ASCAP public repertory using separate title and performer fields.",
+            url=ascap_title_performer_url or ASCAP_REPERTORY_URL,
+            search_term=_field_summary(_fields(title=title_term, performer=performer_term)) or title_term or iswc_term,
+            search_type="title_performer",
+            search_fields=_fields(title=title_term, performer=performer_term),
         ),
         CandidateDiscoveryAction(
             source="BMI / Songview repertoire",
-            description="Search BMI's public Songview-enabled repertoire by title, writer, publisher, work ID, or ISWC.",
+            description="Search BMI's public repertoire using separate title and performer fields, then choose Songview or BMI Repertoire.",
             url=BMI_REPERTOIRE_URL,
-            search_term=title_writer_term or title_term or publisher_term or iswc_term,
-            search_type="title_writer",
+            search_term=_field_summary(_fields(title=title_term, performer=performer_term))
+            or title_writer_term
+            or title_term
+            or publisher_term
+            or iswc_term,
+            search_type="title_performer",
+            search_fields=_fields(title=title_term, performer=performer_term, mode="BMI Repertoire"),
         ),
     ]
 
@@ -54,6 +58,7 @@ def discover_candidate_actions(ascap_work: AscapWork) -> CandidateDiscoveryRespo
                 url=BMI_REPERTOIRE_URL,
                 search_term=iswc_term,
                 search_type="iswc",
+                search_fields={"iswc": iswc_term},
             )
         )
 
@@ -70,3 +75,20 @@ def _first_party_name(parties) -> str:
         if party.name.strip():
             return party.name.strip()
     return ""
+
+
+def _ascap_title_performer_url(title: str, performer: str) -> str:
+    if not title or not performer:
+        return ""
+    return (
+        f"{ASCAP_REPERTORY_URL}#/ace/search/title/{quote(title)}/"
+        f"performer/{quote(performer)}?at=false&searchFilter=SVW&page=1"
+    )
+
+
+def _fields(**values: str) -> dict[str, str]:
+    return {key: value for key, value in values.items() if value}
+
+
+def _field_summary(fields: dict[str, str]) -> str:
+    return "; ".join(f"{key.title()}: {value}" for key, value in fields.items())

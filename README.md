@@ -104,7 +104,7 @@ The final report gives the user a clearer starting point for resolving the issue
 
 * Manual ASCAP work metadata entry
 * Candidate public repertoire record entry
-* API-backed public repertoire discovery assist
+* API-backed public repertoire discovery assist with source-specific search fields
 * Pasted public result parsing into candidate records
 * Title normalization and fuzzy title matching
 * Writer name and IPI/CAE comparison
@@ -171,10 +171,10 @@ Greatest
 ```
 
 ```text
-Andrew Rubalcava
-A. Rubalcava
-A Rubalcava
-Rubalcava Andrew
+Alex Rivera
+A. Rivera
+A Rivera
+Rivera Alex
 ```
 
 The tool uses normalization, fuzzy matching, and weighted scoring to compare records in a structured way.
@@ -301,7 +301,7 @@ Work Under Review
 -----------------
 Title: THE GREATEST
 ASCAP Song Code: 123456789
-Writers: Andrew Rubalcava, Jane Smith
+Writers: Alex Rivera, Jane Smith
 Publishers: Example Publishing
 Shares: 50% / 50%
 ISWC: Not shown

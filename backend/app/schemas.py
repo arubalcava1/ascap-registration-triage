@@ -40,6 +40,7 @@ class AnalyzeRequest(BaseModel):
 
 class CandidateDiscoveryRequest(BaseModel):
     ascap_work: AscapWork
+    performer: str | None = None
 
 
 class CandidateDiscoveryAction(BaseModel):
@@ -48,6 +49,7 @@ class CandidateDiscoveryAction(BaseModel):
     url: str
     search_term: str
     search_type: str
+    search_fields: dict[str, str] = Field(default_factory=dict)
 
 
 class CandidateDiscoveryResponse(BaseModel):
@@ -105,9 +107,21 @@ class CandidateAnalysisResult(BaseModel):
     discrepancies: list[Discrepancy] = Field(default_factory=list)
 
 
+ReviewDecisionLabel = Literal["Likely Same Work", "Needs Manual Review", "Likely Different Work"]
+ReviewDecisionSeverity = Literal["success", "warning", "danger"]
+
+
+class ReviewDecision(BaseModel):
+    label: ReviewDecisionLabel
+    severity: ReviewDecisionSeverity
+    confidence_score: float
+    rationale: list[str] = Field(default_factory=list)
+
+
 class AnalyzeResponse(BaseModel):
     results: list[CandidateAnalysisResult]
     top_result: CandidateAnalysisResult | None
+    review_decision: ReviewDecision
     summary: str
     report_text: str
     disclaimer: str

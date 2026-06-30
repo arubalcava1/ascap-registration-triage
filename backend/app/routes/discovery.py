@@ -9,4 +9,4 @@ router = APIRouter()
 
 @router.post("/discover-candidates", response_model=CandidateDiscoveryResponse)
 def discover_candidates(request: CandidateDiscoveryRequest) -> CandidateDiscoveryResponse:
-    return discover_candidate_actions(request.ascap_work)
+    return discover_candidate_actions(request.ascap_work, request.performer)
