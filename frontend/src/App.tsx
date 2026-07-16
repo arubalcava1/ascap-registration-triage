@@ -20,13 +20,17 @@ import {
 import {
   analyzeWork,
   AnalyzeResponse,
+  BrowserAssistedSession,
+  BrowserAssistedTask,
   CandidateDiscoveryAction,
   CandidateDiscoveryResponse,
   CandidateParseResponse,
   CandidateWork,
+  captureBrowserVisibleText,
   discoverCandidates,
   Party,
   parseCandidate,
+  startBrowserAssistedSession,
 } from "./lib/api";
 import { cn } from "./lib/utils";
 import { Button } from "./components/ui/button";
@@ -82,6 +86,11 @@ function App() {
   const [isParsingCandidate, setIsParsingCandidate] = useState(false);
   const [openedSources, setOpenedSources] = useState<string[]>([]);
   const [parsedSources, setParsedSources] = useState<string[]>([]);
+  const [browserSession, setBrowserSession] = useState<BrowserAssistedSession | null>(null);
+  const [browserAssistError, setBrowserAssistError] = useState("");
+  const [isStartingBrowserAssist, setIsStartingBrowserAssist] = useState(false);
+  const [userApprovedCapture, setUserApprovedCapture] = useState(false);
+  const [isCapturingVisibleText, setIsCapturingVisibleText] = useState(false);
 
   const canAnalyze = title.trim().length > 0 && candidates.some((candidate) => candidate.title.trim());
   const topResult = response?.top_result;
@@ -95,6 +104,19 @@ function App() {
     [candidates, response, title],
   );
 
+  function buildAscapWorkPayload() {
+    return {
+      title,
+      song_code: optional(songCode),
+      iswc: optional(iswc),
+      alternate_titles: [],
+      writers: parseParties(writers),
+      publishers: parseParties(publishers),
+      source_url: null,
+      notes: optional(notes),
+    };
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -102,16 +124,7 @@ function App() {
 
     try {
       const payload = {
-        ascap_work: {
-          title,
-          song_code: optional(songCode),
-          iswc: optional(iswc),
-          alternate_titles: [],
-          writers: parseParties(writers),
-          publishers: parseParties(publishers),
-          source_url: null,
-          notes: optional(notes),
-        },
+        ascap_work: buildAscapWorkPayload(),
         candidates: candidates
           .filter((candidate) => candidate.title.trim())
           .map(toCandidateWork),
@@ -149,16 +162,7 @@ function App() {
 
     try {
       const result = await discoverCandidates({
-        ascap_work: {
-          title,
-          song_code: optional(songCode),
-          iswc: optional(iswc),
-          alternate_titles: [],
-          writers: parseParties(writers),
-          publishers: parseParties(publishers),
-          source_url: null,
-          notes: optional(notes),
-        },
+        ascap_work: buildAscapWorkPayload(),
         performer: optional(performer),
       });
       setDiscovery(result);
@@ -168,6 +172,23 @@ function App() {
       setDiscoveryError(caught instanceof Error ? caught.message : "Discovery failed.");
     } finally {
       setIsDiscovering(false);
+    }
+  }
+
+  async function handleStartBrowserAssist() {
+    setBrowserAssistError("");
+    setIsStartingBrowserAssist(true);
+
+    try {
+      const result = await startBrowserAssistedSession({
+        ascap_work: buildAscapWorkPayload(),
+        performer: optional(performer),
+      });
+      setBrowserSession(result);
+    } catch (caught) {
+      setBrowserAssistError(caught instanceof Error ? caught.message : "Browser-assisted setup failed.");
+    } finally {
+      setIsStartingBrowserAssist(false);
     }
   }
 
@@ -186,6 +207,40 @@ function App() {
   function openDiscoverySource(link: CandidateDiscoveryAction) {
     setOpenedSources((current) => uniqueValues([...current, link.source]));
     window.open(link.url, "_blank", "noopener");
+  }
+
+  function openBrowserTask(task: BrowserAssistedTask) {
+    setOpenedSources((current) => uniqueValues([...current, task.source]));
+    setPasteSource(parseSourceFromSourceName(task.source));
+    window.open(task.url, "_blank", "noopener");
+  }
+
+  async function handleCaptureApprovedVisibleText() {
+    if (!browserSession) {
+      setParseError("Start a browser-assisted session before capturing visible text.");
+      return;
+    }
+
+    setParseError("");
+    setIsCapturingVisibleText(true);
+
+    try {
+      const result = await captureBrowserVisibleText({
+        session_id: browserSession.session_id,
+        source: pasteSource,
+        visible_text: pasteText,
+        user_approved_capture: userApprovedCapture,
+      });
+      setParseResult(result.parse_result);
+      setCandidates((current) => [...current, candidateToDraft(result.parse_result.candidate)]);
+      setParsedSources((current) => uniqueValues([...current, pasteSource]));
+      setPasteText("");
+      setUserApprovedCapture(false);
+    } catch (caught) {
+      setParseError(caught instanceof Error ? caught.message : "Visible text capture failed.");
+    } finally {
+      setIsCapturingVisibleText(false);
+    }
   }
 
   async function handleParseCandidate() {
@@ -365,26 +420,91 @@ function App() {
                       Ask the backend to prepare source searches from the ASCAP work metadata.
                     </p>
                   </div>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    disabled={!title.trim() || isDiscovering}
-                    onClick={handleDiscoverCandidates}
-                  >
-                    {isDiscovering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                    Find public matches
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={!title.trim() || isDiscovering}
+                      onClick={handleDiscoverCandidates}
+                    >
+                      {isDiscovering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                      Find public matches
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={!title.trim() || isStartingBrowserAssist}
+                      onClick={handleStartBrowserAssist}
+                    >
+                      {isStartingBrowserAssist ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                      Start browser-assisted search
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="grid gap-3">
-                  {discoveryError && (
+                  {(discoveryError || browserAssistError) && (
                     <div className="rounded-md border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-100 md:col-span-2">
-                      {discoveryError}
+                      {discoveryError || browserAssistError}
                     </div>
                   )}
 
-                  {!discovery && !discoveryError && (
+                  {!discovery && !browserSession && !discoveryError && !browserAssistError && (
                     <div className="rounded-lg border border-white/10 bg-slate-950/35 p-4 text-sm leading-6 text-slate-400 md:col-span-2">
                       Use this step before adding candidates. The app will prepare public-source search actions from the work title, writer, publisher, and ISWC.
+                    </div>
+                  )}
+
+                  {browserSession && (
+                    <div className="rounded-lg border border-sky-300/20 bg-sky-300/10 p-4 text-sm text-slate-200">
+                      <div className="mb-3 flex items-start justify-between gap-3">
+                        <div>
+                          <h3 className="font-semibold text-white">Browser-assisted discovery prototype</h3>
+                          <p className="mt-1 text-xs leading-5 text-slate-300">{browserSession.summary}</p>
+                        </div>
+                        <ShieldCheck className="h-4 w-4 shrink-0 text-sky-200" />
+                      </div>
+                      <div className="mb-4 rounded-md border border-white/10 bg-slate-950/35 p-3">
+                        <div className="mb-2 text-xs uppercase tracking-[0.14em] text-slate-500">Guardrails</div>
+                        <ul className="space-y-1 text-xs leading-5 text-slate-300">
+                          {browserSession.guardrails.map((guardrail) => (
+                            <li key={guardrail}>{guardrail}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="grid gap-3">
+                        {browserSession.tasks.map((task) => (
+                          <div key={task.task_id} className="rounded-md border border-white/10 bg-slate-950/35 p-3">
+                            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                              <div className="font-medium text-slate-100">{task.source}</div>
+                              <span className="rounded-md border border-amber-300/25 bg-amber-300/10 px-2 py-1 text-[11px] text-amber-100">
+                                User approval required
+                              </span>
+                            </div>
+                            <div className="mb-3 grid gap-2 rounded-md border border-white/10 bg-slate-950/45 px-3 py-2 text-xs text-slate-300">
+                              {Object.entries(task.search_fields).map(([field, value]) => (
+                                <div key={field} className="flex gap-2">
+                                  <span className="min-w-20 text-slate-500">{field}</span>
+                                  <span>{value}</span>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Button type="button" variant="secondary" className="h-9" onClick={() => openBrowserTask(task)}>
+                                <ExternalLink className="h-4 w-4" />
+                                Open public page
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                className="h-9"
+                                onClick={() => setPasteSource(parseSourceFromSourceName(task.source))}
+                              >
+                                <ClipboardList className="h-4 w-4" />
+                                Stage capture
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 
@@ -495,6 +615,31 @@ function App() {
                     placeholder={pasteSourcePlaceholder(pasteSource)}
                   />
                 </Field>
+
+                {browserSession && (
+                  <div className="rounded-lg border border-white/10 bg-slate-950/35 p-4 md:col-span-3">
+                    <label className="flex items-start gap-3 text-sm leading-5 text-slate-300">
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 rounded border-white/20 bg-slate-950"
+                        checked={userApprovedCapture}
+                        onChange={(event) => setUserApprovedCapture(event.target.checked)}
+                      />
+                      <span>
+                        I confirm this text is visible public repertoire page content that I approved for capture. No login credentials, private member data, or blocked content is included.
+                      </span>
+                    </label>
+                    <Button
+                      type="button"
+                      className="mt-4 h-10 w-full"
+                      disabled={!pasteText.trim() || !userApprovedCapture || isCapturingVisibleText}
+                      onClick={handleCaptureApprovedVisibleText}
+                    >
+                      {isCapturingVisibleText ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                      Capture approved visible text
+                    </Button>
+                  </div>
+                )}
 
                 {parseError && (
                   <div className="rounded-md border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-100 md:col-span-3">
@@ -906,12 +1051,19 @@ function primarySearchCopyValue(link: CandidateDiscoveryAction): string {
 }
 
 function parseSourceFromDiscovery(link: CandidateDiscoveryAction): string {
-  const source = link.source.toLowerCase();
+  return parseSourceFromSourceName(link.source);
+}
+
+function parseSourceFromSourceName(sourceName: string): string {
+  const source = sourceName.toLowerCase();
   if (source.includes("bmi")) {
     return "BMI Repertoire";
   }
   if (source.includes("ascap")) {
     return "ASCAP Repertory";
+  }
+  if (source.includes("iswc")) {
+    return "BMI Repertoire";
   }
   return "Songview";
 }

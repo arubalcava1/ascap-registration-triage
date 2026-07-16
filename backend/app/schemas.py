@@ -69,6 +69,46 @@ class CandidateParseResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+BrowserTaskStatus = Literal["requires_user_open", "waiting_for_visible_content", "captured"]
+
+
+class BrowserAssistedTask(BaseModel):
+    task_id: str
+    source: str
+    url: str
+    search_fields: dict[str, str] = Field(default_factory=dict)
+    instructions: list[str] = Field(default_factory=list)
+    status: BrowserTaskStatus
+    requires_user_approval: bool = True
+
+
+class BrowserAssistedStartRequest(BaseModel):
+    ascap_work: AscapWork
+    performer: str | None = None
+
+
+class BrowserAssistedSession(BaseModel):
+    session_id: str
+    tasks: list[BrowserAssistedTask] = Field(default_factory=list)
+    guardrails: list[str] = Field(default_factory=list)
+    summary: str
+    disclaimer: str
+
+
+class BrowserAssistedCaptureRequest(BaseModel):
+    session_id: str
+    source: str = Field(..., min_length=1)
+    visible_text: str = Field(..., min_length=1)
+    user_approved_capture: bool
+
+
+class BrowserAssistedCaptureResponse(BaseModel):
+    session_id: str
+    source: str
+    parse_result: CandidateParseResponse
+    guardrails: list[str] = Field(default_factory=list)
+
+
 Severity = Literal["low", "medium", "high"]
 
 

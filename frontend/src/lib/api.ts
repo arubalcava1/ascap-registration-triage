@@ -64,6 +64,43 @@ export type CandidateParseResponse = {
   warnings: string[];
 };
 
+export type BrowserAssistedTask = {
+  task_id: string;
+  source: string;
+  url: string;
+  search_fields: Record<string, string>;
+  instructions: string[];
+  status: "requires_user_open" | "waiting_for_visible_content" | "captured";
+  requires_user_approval: boolean;
+};
+
+export type BrowserAssistedStartRequest = {
+  ascap_work: AscapWork;
+  performer: string | null;
+};
+
+export type BrowserAssistedSession = {
+  session_id: string;
+  tasks: BrowserAssistedTask[];
+  guardrails: string[];
+  summary: string;
+  disclaimer: string;
+};
+
+export type BrowserAssistedCaptureRequest = {
+  session_id: string;
+  source: string;
+  visible_text: string;
+  user_approved_capture: boolean;
+};
+
+export type BrowserAssistedCaptureResponse = {
+  session_id: string;
+  source: string;
+  parse_result: CandidateParseResponse;
+  guardrails: string[];
+};
+
 export type Discrepancy = {
   type: string;
   severity: "low" | "medium" | "high";
@@ -168,4 +205,42 @@ export async function parseCandidate(
   }
 
   return response.json() as Promise<CandidateParseResponse>;
+}
+
+export async function startBrowserAssistedSession(
+  payload: BrowserAssistedStartRequest,
+): Promise<BrowserAssistedSession> {
+  const response = await fetch("/api/browser-assisted/start", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || `Browser-assisted session failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<BrowserAssistedSession>;
+}
+
+export async function captureBrowserVisibleText(
+  payload: BrowserAssistedCaptureRequest,
+): Promise<BrowserAssistedCaptureResponse> {
+  const response = await fetch("/api/browser-assisted/capture-visible-text", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || `Visible text capture failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<BrowserAssistedCaptureResponse>;
 }

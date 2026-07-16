@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from app.routes.analyze import router as analyze_router
+from app.routes.browser_assist import router as browser_assist_router
 from app.routes.discovery import router as discovery_router
 from app.routes.parser import router as parser_router
 
@@ -18,5 +19,6 @@ def health_check() -> dict[str, str]:
 
 
 app.include_router(analyze_router, prefix="/api", tags=["analysis"])
+app.include_router(browser_assist_router, prefix="/api", tags=["browser-assisted"])
 app.include_router(discovery_router, prefix="/api", tags=["discovery"])
 app.include_router(parser_router, prefix="/api", tags=["parser"])
