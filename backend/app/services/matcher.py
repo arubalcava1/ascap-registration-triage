@@ -126,9 +126,6 @@ def _decision_rationale(
         evidence_fields = ", ".join(item.field for item in top_result.matching_evidence[:4])
         rationale.append(f"Positive evidence was found for: {evidence_fields}.")
 
-    if top_result.comparison_details.candidate_iswc and not top_result.comparison_details.ascap_iswc:
-        rationale.append("Candidate includes an ISWC that was not shown in the ASCAP metadata provided.")
-
     if high_severity_count:
         rationale.append(f"{high_severity_count} high-severity discrepancy item(s) require review.")
     if medium_severity_count:

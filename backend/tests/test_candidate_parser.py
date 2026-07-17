@@ -269,3 +269,49 @@ WORLD WIDE VISIONARYENTERTAINMENT INC ASCAP 556798195
     assert data["candidate"]["iswc"] == "T9019887935"
     assert data["candidate"]["writers"][0]["name"] == "ALIYU IBRAHIM BOLAJI"
     assert data["candidate"]["publishers"][0]["name"] == "WORLD WIDE VISIONARYENTERTAINMENT INC"
+
+
+def test_parse_candidate_from_real_ascap_santeria_block() -> None:
+    response = client.post(
+        "/api/parse-candidate",
+        json={
+            "source": "ASCAP Repertory",
+            "raw_text": """
+SANTERIA
+ISWC: T0709421237
+Work ID: 490865115
+Total Current ASCAP Share: 0%
+Total Current BMI Share: 100%
+Writers
+ASCAP controls: 0% BMI controls: 50%
+PRO IPI
+GAUGH FLOYD I BMI 196147445
+NOWELL BRADLEY JAMES BMI 183755932
+WILSON ERIC JOHN BMI 196150560
+Performers
+SUBLIME
+Publishers
+ASCAP controls: 0% BMI controls: 50%
+PRO IPI
+ERIC JOHN WILSON PUBLISHING BMI 196381143
+FLOYD I GAUGH IV PUBLISHING BMI 196381339
+GASOLINE ALLEY MUSIC BMI 18019776
+LOU DOG PUBLISHING BMI 183746051
+SONGS OF UNIVERSAL INC BMI 353271280
+""",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["candidate"]["title"] == "SANTERIA"
+    assert data["candidate"]["public_work_id"] == "490865115"
+    assert data["candidate"]["iswc"] == "T0709421237"
+    assert [writer["name"] for writer in data["candidate"]["writers"]] == [
+        "GAUGH FLOYD I",
+        "NOWELL BRADLEY JAMES",
+        "WILSON ERIC JOHN",
+    ]
+    assert data["candidate"]["publishers"][0]["name"] == "ERIC JOHN WILSON PUBLISHING"
+    assert data["warnings"] == []

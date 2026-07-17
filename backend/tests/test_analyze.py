@@ -30,8 +30,8 @@ def test_analyze_ranks_candidates_and_detects_discrepancies() -> None:
 
     discrepancy_types = {item["type"] for item in data["results"][0]["discrepancies"]}
     assert "extra_writer" in discrepancy_types
-    assert "iswc_missing_from_ascap_metadata" in discrepancy_types
     assert "writer_share_mismatch" in discrepancy_types
+    assert "iswc_missing_from_ascap_metadata" not in discrepancy_types
 
     assert data["review_decision"]["label"] == "Needs Manual Review"
     assert data["review_decision"]["severity"] == "warning"
@@ -63,6 +63,68 @@ def test_missing_iswc_does_not_block_analysis() -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["top_result"]["candidate"]["title"] == "GREATEST, THE"
+
+
+def test_blank_user_identifiers_are_not_matching_criteria() -> None:
+    payload = {
+        "ascap_work": {
+            "title": "SANTERIA",
+            "song_code": None,
+            "iswc": None,
+            "alternate_titles": [],
+            "writers": [
+                {"name": "gaugh", "ipi_cae": None, "share": None},
+                {"name": "nowell", "ipi_cae": None, "share": None},
+                {"name": "wilson", "ipi_cae": None, "share": None},
+            ],
+            "publishers": [],
+            "source_url": None,
+            "notes": None,
+        },
+        "candidates": [
+            {
+                "source": "ASCAP Repertory",
+                "title": "SANTERIA",
+                "public_work_id": "490865115",
+                "iswc": "T0709421237",
+                "alternate_titles": [],
+                "writers": [
+                    {"name": "GAUGH FLOYD I", "ipi_cae": None, "share": None},
+                    {"name": "NOWELL BRADLEY JAMES", "ipi_cae": None, "share": None},
+                    {"name": "WILSON ERIC JOHN", "ipi_cae": None, "share": None},
+                ],
+                "publishers": [],
+                "status": None,
+                "source_url": None,
+                "raw_notes": None,
+            }
+        ],
+    }
+
+    response = client.post("/api/analyze", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    discrepancy_types = {item["type"] for item in data["top_result"]["discrepancies"]}
+    evidence_fields = {item["field"] for item in data["top_result"]["matching_evidence"]}
+    assert "iswc_missing_from_ascap_metadata" not in discrepancy_types
+    assert "song_code_missing_from_candidate" not in discrepancy_types
+    assert "song_code" not in evidence_fields
+    assert "iswc" not in evidence_fields
+    assert data["top_result"]["confidence_label"] == "Strong Match"
+
+
+def test_provided_song_code_is_matching_criteria() -> None:
+    payload = _payload()
+    payload["ascap_work"]["song_code"] = "123456789"
+    payload["candidates"][0]["public_work_id"] = "999999999"
+
+    response = client.post("/api/analyze", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    discrepancy_types = {item["type"] for item in data["results"][0]["discrepancies"]}
+    assert "song_code_mismatch" in discrepancy_types
 
 
 def test_writer_set_quality_breaks_same_title_tie() -> None:
@@ -231,6 +293,48 @@ def test_extra_writer_prevents_strong_match_without_confirming_iswc() -> None:
     assert data["top_result"]["confidence_label"] != "Strong Match"
 
 
+def test_case_and_last_name_only_writer_match_has_no_name_discrepancy() -> None:
+    payload = {
+        "ascap_work": {
+            "title": "EXAMPLE SONG",
+            "song_code": None,
+            "iswc": None,
+            "alternate_titles": [],
+            "writers": [
+                {"name": "williams", "ipi_cae": None, "share": None},
+            ],
+            "publishers": [],
+            "source_url": None,
+            "notes": None,
+        },
+        "candidates": [
+            {
+                "source": "ASCAP Repertory",
+                "title": "EXAMPLE SONG",
+                "public_work_id": "12345",
+                "iswc": None,
+                "alternate_titles": [],
+                "writers": [
+                    {"name": "WILLIAMS JOHN", "ipi_cae": None, "share": None},
+                ],
+                "publishers": [],
+                "status": None,
+                "source_url": None,
+                "raw_notes": None,
+            }
+        ],
+    }
+
+    response = client.post("/api/analyze", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    discrepancy_types = {item["type"] for item in data["top_result"]["discrepancies"]}
+    assert "writer_name_variation" not in discrepancy_types
+    assert "missing_writer" not in discrepancy_types
+    assert "extra_writer" not in discrepancy_types
+
+
 def _payload() -> dict:
     return {
         "ascap_work": {
@@ -252,7 +356,7 @@ def _payload() -> dict:
             {
                 "source": "Songview",
                 "title": "GREATEST, THE",
-                "public_work_id": "SV-12345",
+                "public_work_id": "123456789",
                 "iswc": "T-123456789-0",
                 "alternate_titles": [],
                 "writers": [

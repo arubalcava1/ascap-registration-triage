@@ -12,11 +12,13 @@ const elements = {
   openAscapButton: document.querySelector("#openAscapButton"),
   fillAscapButton: document.querySelector("#fillAscapButton"),
   copyTitleButton: document.querySelector("#copyTitleButton"),
+  searchPlan: document.querySelector("#searchPlan"),
   captureButton: document.querySelector("#captureButton"),
   clearCandidatesButton: document.querySelector("#clearCandidatesButton"),
   analyzeButton: document.querySelector("#analyzeButton"),
   copyReportButton: document.querySelector("#copyReportButton"),
   candidateCount: document.querySelector("#candidateCount"),
+  captureDiagnostics: document.querySelector("#captureDiagnostics"),
   candidateList: document.querySelector("#candidateList"),
   resultsList: document.querySelector("#resultsList"),
   summaryText: document.querySelector("#summaryText"),
@@ -34,6 +36,7 @@ let state = {
     publishers: "",
   },
   candidates: [],
+  capture_diagnostics: null,
   analysis: null,
 };
 
@@ -96,15 +99,14 @@ async function openAscapSearch() {
     setStatus("Enter a title before opening ASCAP search.", true);
     return;
   }
-  await chrome.tabs.create({
-    url: buildAscapSearchUrl(
-      state.work.title,
-      state.work.performer,
-      firstWriterSearchTerm(state.work.writers),
-      firstPublisherSearchTerm(state.work.publishers),
-    ),
-  });
-  setStatus("Opened ASCAP search in a new tab.");
+  const plan = buildAscapSearchPlan(state.work).slice(0, 4);
+  for (const [index, search] of plan.entries()) {
+    await chrome.tabs.create({
+      url: buildAscapSearchUrl(state.work.title, search.type, search.term),
+      active: index === 0,
+    });
+  }
+  setStatus(`Opened ${plan.length} ASCAP search tab(s).`);
 }
 
 async function fillAscapSearch() {
@@ -180,6 +182,7 @@ async function captureCurrentTab() {
     }
 
     const parsedCandidates = [];
+    const parseDiagnostics = [];
     for (const capturedResult of result.results) {
       const parsed = await apiFetch("/api/parse-candidate", {
         method: "POST",
@@ -193,13 +196,30 @@ async function captureCurrentTab() {
         source_url: result.url,
         raw_notes: parsed.candidate.raw_notes || capturedResult.text,
       });
+      parseDiagnostics.push({
+        index: capturedResult.index + 1,
+        title: parsed.candidate.title,
+        public_work_id: parsed.candidate.public_work_id,
+        parsed_fields: parsed.parsed_fields,
+        warnings: parsed.warnings,
+      });
     }
 
-    state.candidates = mergeCandidates(state.candidates, parsedCandidates);
+    const mergeResult = mergeCandidates(state.candidates, parsedCandidates);
+    state.candidates = mergeResult.candidates;
+    state.capture_diagnostics = {
+      found: result.diagnostics?.found || result.results.length,
+      captured: result.results.length,
+      parsed: parsedCandidates.length,
+      added: mergeResult.added,
+      duplicates: mergeResult.duplicates,
+      expand_clicks: result.diagnostics?.expand_clicks || 0,
+      parse_details: parseDiagnostics,
+    };
     state.analysis = null;
     await saveState();
     render();
-    setStatus(`Captured ${parsedCandidates.length} ASCAP result(s).`);
+    setStatus(`Captured ${parsedCandidates.length} ASCAP result(s); ${mergeResult.added} new candidate(s).`);
 
     if (state.work.title.trim() && state.candidates.length > 0) {
       await runAnalysis();
@@ -249,6 +269,7 @@ async function runAnalysis() {
 
 async function clearCandidates() {
   state.candidates = [];
+  state.capture_diagnostics = null;
   state.analysis = null;
   await saveState();
   render();
@@ -306,6 +327,8 @@ function render() {
       ? "No candidates captured."
       : `${state.candidates.length} candidate(s) captured.`;
   elements.analyzeButton.disabled = state.candidates.length === 0;
+  renderSearchPlan();
+  renderCaptureDiagnostics();
 
   elements.candidateList.innerHTML = state.candidates
     .map(
@@ -350,14 +373,193 @@ function render() {
             <span class="item-name">Rank ${escapeHtml(result.rank)} - ${escapeHtml(result.candidate.title)}</span>
             <span class="score">${escapeHtml(result.confidence_score.toFixed(0))}%<br>${escapeHtml(result.confidence_label)}</span>
           </div>
-          <div class="item-meta">${escapeHtml(result.candidate.source)}</div>
-          <div class="item-body">
-            ${escapeHtml(result.discrepancies.length)} discrepancy item(s). ${escapeHtml(result.matching_evidence.length)} matching signal(s).
-          </div>
+          <div class="item-meta">${escapeHtml(result.candidate.source)}${formatIdentifierMetaClean(result)}</div>
+          ${renderWriterReview(result)}
+          ${renderIdentifierReview(result)}
+          ${renderEvidenceReview(result)}
         </article>
       `,
     )
     .join("");
+}
+
+function renderCaptureDiagnostics() {
+  const diagnostics = state.capture_diagnostics;
+  if (!diagnostics) {
+    elements.captureDiagnostics.classList.add("hidden");
+    elements.captureDiagnostics.innerHTML = "";
+    return;
+  }
+
+  const issueLines = (diagnostics.parse_details || [])
+    .filter((item) => item.warnings?.length)
+    .map(
+      (item) => `
+        <div class="diagnostic-row">
+          <span>${escapeHtml(item.title || `Result ${item.index}`)}</span>
+          <span>${escapeHtml(item.warnings.join(" "))}</span>
+        </div>
+      `,
+    )
+    .join("");
+
+  elements.captureDiagnostics.classList.remove("hidden");
+  elements.captureDiagnostics.innerHTML = `
+    <div class="diagnostic-grid">
+      <span>Found ${escapeHtml(diagnostics.found || 0)}</span>
+      <span>Parsed ${escapeHtml(diagnostics.parsed || 0)}</span>
+      <span>Added ${escapeHtml(diagnostics.added || 0)}</span>
+      <span>Duplicates ${escapeHtml(diagnostics.duplicates || 0)}</span>
+      <span>Expand clicks ${escapeHtml(diagnostics.expand_clicks || 0)}</span>
+    </div>
+    ${issueLines ? `<div class="diagnostic-issues">${issueLines}</div>` : ""}
+  `;
+}
+
+function renderSearchPlan() {
+  const plan = buildAscapSearchPlan(state.work);
+  if (!state.work.title?.trim()) {
+    elements.searchPlan.innerHTML = `<div class="muted-line">Enter a title to prepare ASCAP searches.</div>`;
+    return;
+  }
+
+  elements.searchPlan.innerHTML = plan
+    .slice(0, 4)
+    .map(
+      (item) => `
+        <div class="search-chip">
+          <span>${escapeHtml(item.type)}</span>
+          <strong>${escapeHtml(state.work.title.trim())}</strong>
+          ${item.term ? `<em>${escapeHtml(item.term)}</em>` : ""}
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function formatIdentifierMeta(result) {
+  const pieces = [];
+  if (result.candidate.public_work_id) {
+    pieces.push(`ASCAP Work ID ${result.candidate.public_work_id}`);
+  }
+  if (state.work.iswc?.trim() && result.candidate.iswc) {
+    pieces.push(`ISWC ${result.candidate.iswc}`);
+  }
+  return pieces.length ? ` · ${escapeHtml(pieces.join(" · "))}` : "";
+}
+
+function formatIdentifierMetaClean(result) {
+  const pieces = [];
+  if (result.candidate.public_work_id) {
+    pieces.push(`ASCAP Work ID ${result.candidate.public_work_id}`);
+  }
+  if (state.work.iswc?.trim() && result.candidate.iswc) {
+    pieces.push(`ISWC ${result.candidate.iswc}`);
+  }
+  return pieces.length ? ` - ${escapeHtml(pieces.join(" - "))}` : "";
+}
+
+function renderWriterReview(result) {
+  const writerDiscrepancies = result.discrepancies.filter((item) => item.field === "writers");
+  const missingWriters = writerDiscrepancies.filter((item) => item.type === "missing_writer");
+  const extraWriters = writerDiscrepancies.filter((item) => item.type === "extra_writer");
+  const matchedPairs = buildMatchedWriterPairs(
+    result.comparison_details.ascap_writers || [],
+    result.comparison_details.candidate_writers || [],
+  );
+
+  return `
+    <div class="review-block">
+      <div class="review-title">Writer check</div>
+      ${matchedPairs.length ? `<div class="match-lines">${matchedPairs.map((pair) => `<span>${escapeHtml(pair)}</span>`).join("")}</div>` : `<div class="muted-line">No writer matches found.</div>`}
+      ${missingWriters.length ? `<div class="warning-line">Missing: ${escapeHtml(extractNamesFromDiscrepancies(missingWriters).join(", "))}</div>` : ""}
+      ${extraWriters.length ? `<div class="warning-line">Extra: ${escapeHtml(extractNamesFromDiscrepancies(extraWriters).join(", "))}</div>` : ""}
+    </div>
+  `;
+}
+
+function renderIdentifierReview(result) {
+  const relevantFields = [];
+  if (state.work.song_code?.trim()) relevantFields.push("song_code");
+  if (state.work.iswc?.trim()) relevantFields.push("iswc");
+  if (!relevantFields.length) {
+    return "";
+  }
+
+  const identifierDiscrepancies = result.discrepancies.filter((item) => relevantFields.includes(item.field));
+  const identifierEvidence = result.matching_evidence.filter((item) => relevantFields.includes(item.field));
+
+  return `
+    <div class="review-block">
+      <div class="review-title">Identifier check</div>
+      ${identifierEvidence.length ? identifierEvidence.map((item) => `<div class="match-line">${escapeHtml(item.description)}</div>`).join("") : ""}
+      ${identifierDiscrepancies.length ? identifierDiscrepancies.map((item) => `<div class="warning-line">${escapeHtml(item.description)}</div>`).join("") : ""}
+      ${!identifierEvidence.length && !identifierDiscrepancies.length ? `<div class="muted-line">No comparable identifier was found on this candidate.</div>` : ""}
+    </div>
+  `;
+}
+
+function renderEvidenceReview(result) {
+  const nonWriterDiscrepancies = result.discrepancies.filter(
+    (item) => !["writers", "iswc", "song_code"].includes(item.field),
+  );
+  const evidence = result.matching_evidence.filter((item) => !["iswc", "song_code"].includes(item.field));
+  return `
+    <div class="item-body">
+      ${escapeHtml(evidence.length)} matching signal(s). ${escapeHtml(nonWriterDiscrepancies.length)} other review item(s).
+    </div>
+  `;
+}
+
+function buildMatchedWriterPairs(ascapWriters, candidateWriters) {
+  const pairs = [];
+  const usedCandidates = new Set();
+  ascapWriters.forEach((ascapWriter) => {
+    const match = bestNameMatch(ascapWriter, candidateWriters, usedCandidates);
+    if (match.score >= 0.88) {
+      usedCandidates.add(match.index);
+      pairs.push(`${ascapWriter} -> ${match.name}`);
+    }
+  });
+  return pairs;
+}
+
+function bestNameMatch(name, candidates, usedCandidates) {
+  return candidates.reduce(
+    (best, candidate, index) => {
+      if (usedCandidates.has(index)) return best;
+      const score = nameSimilarity(name, candidate);
+      return score > best.score ? { name: candidate, score, index } : best;
+    },
+    { name: "", score: 0, index: -1 },
+  );
+}
+
+function nameSimilarity(left, right) {
+  const leftTokens = nameTokens(left);
+  const rightTokens = nameTokens(right);
+  if (!leftTokens.size || !rightTokens.size) return 0;
+  if (isSubset(leftTokens, rightTokens) || isSubset(rightTokens, leftTokens)) return 1;
+  const shared = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  return shared / Math.max(leftTokens.size, rightTokens.size);
+}
+
+function nameTokens(value) {
+  return new Set(
+    String(value)
+      .toLowerCase()
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length > 1),
+  );
+}
+
+function isSubset(left, right) {
+  return [...left].every((token) => right.has(token));
+}
+
+function extractNamesFromDiscrepancies(discrepancies) {
+  return discrepancies.map((item) => item.description.match(/'([^']+)'/)?.[1] || item.description);
 }
 
 async function apiFetch(path, options) {
@@ -409,20 +611,41 @@ function optional(value) {
   return trimmed ? trimmed : null;
 }
 
-function buildAscapSearchUrl(title, performer, writer, publisher) {
+function buildAscapSearchPlan(work) {
+  const title = (work.title || "").trim();
+  if (!title) {
+    return [];
+  }
+
+  if ((work.performer || "").trim()) {
+    return [{ type: "Performer", term: work.performer.trim() }];
+  }
+
+  const writers = partySearchTerms(work.writers);
+  if (writers.length) {
+    return writers.map((term) => ({ type: "Writer", term }));
+  }
+
+  const publishers = partySearchTerms(work.publishers);
+  if (publishers.length) {
+    return publishers.map((term) => ({ type: "Publisher", term }));
+  }
+
+  return [{ type: "Title", term: "" }];
+}
+
+function buildAscapSearchUrl(title, searchType, searchTerm) {
   const encodedTitle = encodeURIComponent(title.trim());
-  const encodedPerformer = encodeURIComponent((performer || "").trim());
-  const encodedWriter = encodeURIComponent((writer || "").trim());
-  const encodedPublisher = encodeURIComponent((publisher || "").trim());
+  const encodedTerm = encodeURIComponent((searchTerm || "").trim());
   const base = `https://www.ascap.com/repertory#/ace/search/title/${encodedTitle}`;
-  if (encodedPerformer) {
-    return `${base}/performer/${encodedPerformer}?at=false&searchFilter=SVW&page=1`;
+  if (encodedTerm && searchType === "Performer") {
+    return `${base}/performer/${encodedTerm}?at=false&searchFilter=SVW&page=1`;
   }
-  if (encodedWriter) {
-    return `${base}/writer/${encodedWriter}?at=false&searchFilter=SVW&page=1`;
+  if (encodedTerm && searchType === "Writer") {
+    return `${base}/writer/${encodedTerm}?at=false&searchFilter=SVW&page=1`;
   }
-  if (encodedPublisher) {
-    return `${base}/publisher/${encodedPublisher}?at=false&searchFilter=SVW&page=1`;
+  if (encodedTerm && searchType === "Publisher") {
+    return `${base}/publisher/${encodedTerm}?at=false&searchFilter=SVW&page=1`;
   }
   return `${base}?at=false&searchFilter=SVW&page=1`;
 }
@@ -448,6 +671,24 @@ function firstPartySearchTerm(value) {
   return name;
 }
 
+function partySearchTerms(value) {
+  const seen = new Set();
+  return (value || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.split("|")[0].trim())
+    .filter(Boolean)
+    .filter((term) => {
+      const key = term.toLowerCase();
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
+
 function formatPartySummary(parties = []) {
   if (!parties.length) {
     return "None parsed";
@@ -460,18 +701,40 @@ function formatPartySummary(parties = []) {
 
 function mergeCandidates(existingCandidates, newCandidates) {
   const keyed = new Map();
-  [...existingCandidates, ...newCandidates].forEach((candidate) => {
-    const key = [
-      candidate.source || "",
-      candidate.public_work_id || "",
-      candidate.iswc || "",
-      candidate.title || "",
-    ]
-      .join("|")
-      .toLowerCase();
+  let added = 0;
+  let duplicates = 0;
+  existingCandidates.forEach((candidate) => {
+    keyed.set(candidateKey(candidate), candidate);
+  });
+  newCandidates.forEach((candidate) => {
+    const key = candidateKey(candidate);
+    if (keyed.has(key)) {
+      duplicates += 1;
+    } else {
+      added += 1;
+    }
     keyed.set(key, candidate);
   });
-  return Array.from(keyed.values());
+  return {
+    candidates: Array.from(keyed.values()),
+    added,
+    duplicates,
+  };
+}
+
+function candidateKey(candidate) {
+  const source = (candidate.source || "").toLowerCase();
+  if (candidate.public_work_id) {
+    return `${source}|work-id|${String(candidate.public_work_id).toLowerCase()}`;
+  }
+  if (candidate.iswc) {
+    return `${source}|iswc|${String(candidate.iswc).replace(/[^a-zA-Z0-9]/g, "").toLowerCase()}`;
+  }
+  const writerKey = (candidate.writers || [])
+    .map((writer) => writer.name || "")
+    .join(",")
+    .toLowerCase();
+  return `${source}|title-writers|${String(candidate.title || "").toLowerCase()}|${writerKey}`;
 }
 
 function escapeHtml(value) {
@@ -635,16 +898,27 @@ function fillPublicRepertoireSearch({ targetSource, title, performer, writer, pu
 }
 
 async function extractVisibleRepertoireResults() {
-  await expandVisibleAscapResults();
-  await waitForPageSettled();
+  let results = [];
+  let expandClickCount = 0;
 
-  const results = findAscapResultBlocks();
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    expandClickCount += await expandVisibleAscapResults();
+    await waitForPageSettled(attempt === 1 ? 900 : 1300);
+    results = findAscapResultBlocks();
+    if (results.length) {
+      break;
+    }
+  }
 
   if (results.length) {
     return {
       url: window.location.href,
       title: document.title,
       results,
+      diagnostics: {
+        found: results.length,
+        expand_clicks: expandClickCount,
+      },
       message: `Captured ${results.length} ASCAP result(s).`,
     };
   }
@@ -653,7 +927,11 @@ async function extractVisibleRepertoireResults() {
     url: window.location.href,
     title: document.title,
     results: [],
-    message: "No expanded ASCAP result blocks were found. Search ASCAP, wait for results, then try again.",
+    diagnostics: {
+      found: 0,
+      expand_clicks: expandClickCount,
+    },
+    message: "No expanded ASCAP result blocks were found. Wait for ASCAP results to finish expanding, then try again.",
   };
 
   async function expandVisibleAscapResults() {
@@ -663,15 +941,29 @@ async function extractVisibleRepertoireResults() {
         const text = normalizeText(element.innerText || element.getAttribute("aria-label") || "");
         return /^(\+ )?expand( all)?$/i.test(text) || text.toLowerCase().includes("expand");
       });
+    let clicked = 0;
 
     for (const control of controls) {
       try {
-        control.click();
-        await waitForPageSettled(180);
+        control.scrollIntoView({ block: "center", inline: "nearest" });
+        await waitForPageSettled(120);
+        dispatchUserLikeClick(control);
+        clicked += 1;
+        await waitForPageSettled(260);
       } catch {
         // Best effort only. ASCAP can change markup; capture should still continue.
       }
     }
+    return clicked;
+  }
+
+  function dispatchUserLikeClick(element) {
+    const options = { bubbles: true, cancelable: true, view: window };
+    element.dispatchEvent(new MouseEvent("mouseover", options));
+    element.dispatchEvent(new MouseEvent("mousedown", options));
+    element.dispatchEvent(new MouseEvent("mouseup", options));
+    element.dispatchEvent(new MouseEvent("click", options));
+    element.click();
   }
 
   function findAscapResultBlocks() {
@@ -688,9 +980,10 @@ async function extractVisibleRepertoireResults() {
         };
       })
       .filter(isLikelyWorkResult)
+      .filter((block) => block.area < window.innerWidth * window.innerHeight * 1.5)
       .sort((left, right) => left.top - right.top || left.left - right.left || left.area - right.area);
 
-    const selectedBlocks = [];
+    let selectedBlocks = [];
     for (const block of blocks) {
       if (selectedBlocks.some((selected) => selected.text.includes(block.text))) {
         continue;
@@ -701,7 +994,12 @@ async function extractVisibleRepertoireResults() {
       selectedBlocks.push(block);
     }
 
-    return dedupeResultTexts(selectedBlocks.map((block) => block.text)).map((text, index) => ({
+    let resultTexts = dedupeResultTexts(selectedBlocks.map((block) => block.text));
+    if (resultTexts.length <= 1) {
+      resultTexts = dedupeResultTexts(splitAscapResultsFromPageText(document.body?.innerText || ""));
+    }
+
+    return resultTexts.map((text, index) => ({
       text,
       index,
     }));
@@ -736,17 +1034,66 @@ async function extractVisibleRepertoireResults() {
     return true;
   }
 
+  function splitAscapResultsFromPageText(value) {
+    const lines = normalizeText(value).split("\n");
+    const resultStarts = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      const current = lines[index];
+      const next = lines.slice(index + 1, index + 5).join("\n");
+      if (isLikelyTitleLine(current) && /\bISWC\s*:?\s*T[-\s]?\d{3}/i.test(next) && /\bWork ID\s*:?\s*\d{5,10}/i.test(next)) {
+        resultStarts.push(index);
+      }
+    }
+
+    const chunks = [];
+    for (let index = 0; index < resultStarts.length; index += 1) {
+      const start = resultStarts[index];
+      const end = resultStarts[index + 1] || lines.length;
+      const chunk = lines.slice(start, end).join("\n");
+      if (isLikelyWorkResult({ text: chunk })) {
+        chunks.push(chunk);
+      }
+    }
+    return chunks;
+  }
+
+  function isLikelyTitleLine(line) {
+    if (!line || line.length > 80) {
+      return false;
+    }
+    const upper = line.toUpperCase();
+    if (upper !== line) {
+      return false;
+    }
+    return !hasAny(line, [
+      "ASCAP",
+      "BMI",
+      "ISWC",
+      "WORK ID",
+      "WRITERS",
+      "PUBLISHERS",
+      "PERFORMERS",
+      "TOTAL CURRENT",
+      "SEARCH",
+      "REPERTORY",
+      "SONGVIEW",
+      "CONTACT INFO",
+      "PRO",
+      "IPI",
+    ]);
+  }
+
   function dedupeResultTexts(texts) {
     const seen = new Set();
     const deduped = [];
     for (const text of texts) {
-      const key = [
-        matchValue(text, /\bISWC\s*:?\s*(T[-\s]?\d{3}[.\-\s]?\d{3}[.\-\s]?\d{3}[-\s]?\d)\b/i),
-        matchValue(text, /\bWork ID\s*:?\s*(\d{5,10})\b/i),
-        text.split("\n")[0],
-      ]
-        .join("|")
-        .toLowerCase();
+      const workId = matchValue(text, /\bWork ID\s*:?\s*(\d{5,10})\b/i);
+      const iswc = matchValue(text, /\bISWC\s*:?\s*(T[-\s]?\d{3}[.\-\s]?\d{3}[.\-\s]?\d{3}[-\s]?\d)\b/i);
+      const key = workId
+        ? `work-id|${workId}`
+        : iswc
+          ? `iswc|${iswc.replace(/[^a-zA-Z0-9]/g, "").toLowerCase()}`
+          : `title|${text.split("\n")[0].toLowerCase()}`;
       if (!seen.has(key)) {
         seen.add(key);
         deduped.push(text);

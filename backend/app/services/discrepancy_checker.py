@@ -2,6 +2,7 @@ from rapidfuzz import fuzz
 
 from app.schemas import AscapWork, CandidateWork, Discrepancy, Party
 from app.services.normalizer import (
+    normalize_identifier,
     normalize_iswc,
     normalize_name,
     normalize_publisher_name,
@@ -18,6 +19,7 @@ def detect_discrepancies(ascap_work: AscapWork, candidate: CandidateWork) -> lis
     discrepancies: list[Discrepancy] = []
 
     discrepancies.extend(_title_discrepancies(ascap_work, candidate))
+    discrepancies.extend(_song_code_discrepancies(ascap_work, candidate))
     discrepancies.extend(_iswc_discrepancies(ascap_work, candidate))
     discrepancies.extend(_party_discrepancies(ascap_work.writers, candidate.writers, "writer"))
     discrepancies.extend(_party_discrepancies(ascap_work.publishers, candidate.publishers, "publisher"))
@@ -69,7 +71,7 @@ def _title_discrepancies(ascap_work: AscapWork, candidate: CandidateWork) -> lis
 def _iswc_discrepancies(ascap_work: AscapWork, candidate: CandidateWork) -> list[Discrepancy]:
     ascap_iswc = normalize_iswc(ascap_work.iswc)
     candidate_iswc = normalize_iswc(candidate.iswc)
-    if not ascap_iswc and not candidate_iswc:
+    if not ascap_iswc:
         return []
     if ascap_iswc and candidate_iswc and ascap_iswc != candidate_iswc:
         return [
@@ -81,22 +83,42 @@ def _iswc_discrepancies(ascap_work: AscapWork, candidate: CandidateWork) -> list
                 suggested_review_note="Verify the ISWC in both records before treating this candidate as a match.",
             )
         ]
-    if not ascap_iswc and candidate_iswc:
-        return [
-            Discrepancy(
-                type="iswc_missing_from_ascap_metadata",
-                severity="low",
-                field="iswc",
-                description="Candidate includes an ISWC not shown in the ASCAP portal metadata provided.",
-                suggested_review_note="Review whether the public ISWC belongs to the work under investigation.",
-            )
-        ]
+    if ascap_iswc and candidate_iswc:
+        return []
     return [
         Discrepancy(
             type="iswc_missing_from_candidate",
             severity="low",
             field="iswc",
             description="ASCAP portal metadata includes an ISWC that is not shown in the candidate metadata.",
+            suggested_review_note="Review whether the public record is incomplete or a different candidate.",
+        )
+    ]
+
+
+def _song_code_discrepancies(ascap_work: AscapWork, candidate: CandidateWork) -> list[Discrepancy]:
+    ascap_song_code = normalize_identifier(ascap_work.song_code)
+    candidate_public_id = normalize_identifier(candidate.public_work_id)
+    if not ascap_song_code:
+        return []
+    if ascap_song_code and candidate_public_id and ascap_song_code != candidate_public_id:
+        return [
+            Discrepancy(
+                type="song_code_mismatch",
+                severity="high",
+                field="song_code",
+                description="ASCAP song code and candidate public work ID are different.",
+                suggested_review_note="Verify the ASCAP song code against the public work ID before treating this candidate as a match.",
+            )
+        ]
+    if ascap_song_code and candidate_public_id:
+        return []
+    return [
+        Discrepancy(
+            type="song_code_missing_from_candidate",
+            severity="low",
+            field="song_code",
+            description="ASCAP metadata includes a song code that is not shown in the candidate metadata.",
             suggested_review_note="Review whether the public record is incomplete or a different candidate.",
         )
     ]
@@ -129,7 +151,7 @@ def _party_discrepancies(
                     suggested_review_note=f"Review whether this {party_type} is missing from the candidate record or listed under a variation.",
                 )
             )
-        elif ascap_name != match_name:
+        elif ascap_name != match_name and not _is_token_subset_match(ascap_name, match_name):
             discrepancies.append(
                 Discrepancy(
                     type=f"{party_type}_name_variation",
@@ -198,6 +220,12 @@ def _name_similarity(left: str, right: str) -> float:
     if left_tokens <= right_tokens or right_tokens <= left_tokens:
         return 100.0
     return float(fuzz.token_sort_ratio(left, right))
+
+
+def _is_token_subset_match(left: str, right: str) -> bool:
+    left_tokens = _name_tokens(left)
+    right_tokens = _name_tokens(right)
+    return bool(left_tokens and right_tokens and (left_tokens <= right_tokens or right_tokens <= left_tokens))
 
 
 def _name_tokens(value: str) -> set[str]:

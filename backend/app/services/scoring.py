@@ -2,6 +2,7 @@ from rapidfuzz import fuzz, process
 
 from app.schemas import AscapWork, CandidateWork, MatchingEvidence
 from app.services.normalizer import (
+    normalize_identifier,
     normalize_iswc,
     normalize_title,
     normalized_ipis,
@@ -11,6 +12,7 @@ from app.services.normalizer import (
 
 
 TITLE_WEIGHT = 20.0
+SONG_CODE_WEIGHT = 20.0
 ISWC_WEIGHT = 20.0
 WRITER_IPI_WEIGHT = 20.0
 WRITER_NAME_WEIGHT = 35.0
@@ -28,6 +30,10 @@ def confidence_label(score: float) -> str:
     return "Needs Manual Review"
 
 
+def best_name_similarity(name: str, candidates: str) -> float:
+    return _name_similarity(name, candidates)
+
+
 def score_candidate(ascap_work: AscapWork, candidate: CandidateWork) -> tuple[float, list[MatchingEvidence]]:
     evidence: list[MatchingEvidence] = []
     weighted_scores: list[tuple[float, float]] = []
@@ -36,7 +42,12 @@ def score_candidate(ascap_work: AscapWork, candidate: CandidateWork) -> tuple[fl
     _add_evidence(evidence, "title", title_score, TITLE_WEIGHT, "Title similarity supports this candidate")
     weighted_scores.append((title_score, TITLE_WEIGHT))
 
-    if _has_comparable_iswc(ascap_work, candidate):
+    if _has_ascap_song_code(ascap_work):
+        song_code_score = _score_song_code(ascap_work, candidate)
+        _add_evidence(evidence, "song_code", song_code_score, SONG_CODE_WEIGHT, "ASCAP song code comparison supports this candidate")
+        weighted_scores.append((song_code_score, SONG_CODE_WEIGHT))
+
+    if _has_ascap_iswc(ascap_work):
         iswc_score = _score_iswc(ascap_work, candidate)
         _add_evidence(evidence, "iswc", iswc_score, ISWC_WEIGHT, "ISWC comparison supports this candidate")
         weighted_scores.append((iswc_score, ISWC_WEIGHT))
@@ -77,6 +88,14 @@ def _has_comparable_iswc(ascap_work: AscapWork, candidate: CandidateWork) -> boo
     return bool(normalize_iswc(ascap_work.iswc) and normalize_iswc(candidate.iswc))
 
 
+def _has_ascap_iswc(ascap_work: AscapWork) -> bool:
+    return bool(normalize_iswc(ascap_work.iswc))
+
+
+def _has_ascap_song_code(ascap_work: AscapWork) -> bool:
+    return bool(normalize_identifier(ascap_work.song_code))
+
+
 def _has_comparable_ipis(ascap_parties, candidate_parties) -> bool:
     return bool(normalized_ipis(ascap_parties) and normalized_ipis(candidate_parties))
 
@@ -110,6 +129,14 @@ def _score_iswc(ascap_work: AscapWork, candidate: CandidateWork) -> float:
     if not ascap_iswc or not candidate_iswc:
         return 0.0
     return 1.0 if ascap_iswc == candidate_iswc else 0.0
+
+
+def _score_song_code(ascap_work: AscapWork, candidate: CandidateWork) -> float:
+    ascap_song_code = normalize_identifier(ascap_work.song_code)
+    candidate_public_id = normalize_identifier(candidate.public_work_id)
+    if not ascap_song_code or not candidate_public_id:
+        return 0.0
+    return 1.0 if ascap_song_code == candidate_public_id else 0.0
 
 
 def _score_ipi_overlap(ascap_parties, candidate_parties) -> float:

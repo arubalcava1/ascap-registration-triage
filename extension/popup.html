@@ -55,11 +55,12 @@
         <div class="panel-header">
           <div>
             <h2>Search sources</h2>
-            <p>Open ASCAP public repertoire in your normal Chrome tab. The search uses Performer, then Writer, then Publisher.</p>
+            <p>Open ASCAP public repertoire searches in normal Chrome tabs. Performer is preferred; otherwise each writer name is searched with the title.</p>
           </div>
         </div>
+        <div id="searchPlan" class="search-plan"></div>
         <div class="actions single-action">
-          <button id="openAscapButton" class="secondary-button" type="button">Open ASCAP</button>
+          <button id="openAscapButton" class="secondary-button" type="button">Open ASCAP searches</button>
         </div>
         <div class="actions single-action compact-actions">
           <button id="fillAscapButton" class="secondary-button" type="button">Fill ASCAP search</button>
@@ -90,6 +91,7 @@
           </div>
           <button id="analyzeButton" class="primary-button" type="button">Analyze</button>
         </div>
+        <div id="captureDiagnostics" class="diagnostics hidden"></div>
         <div id="candidateList" class="list"></div>
       </section>
 

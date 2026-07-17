@@ -1,4 +1,5 @@
 from app.schemas import AscapWork, CandidateAnalysisResult, ReviewDecision
+from app.services.scoring import best_name_similarity
 
 
 def generate_report_text(
@@ -36,10 +37,34 @@ def generate_report_text(
                 "-------------",
                 f"Rank: {top_result.rank}",
                 f"Title: {top_result.candidate.title}",
-                f"Source: {top_result.candidate.source}",
-                f"Public Work ID: {top_result.candidate.public_work_id or 'Not provided'}",
+                f"ASCAP Work ID: {top_result.candidate.public_work_id or 'Not provided'}",
                 f"Match Score: {top_result.confidence_score}%",
                 f"Confidence Label: {top_result.confidence_label}",
+                "",
+                "Why This Candidate Ranked First",
+                "-------------------------------",
+            ]
+        )
+        lines.extend(_prefixed_lines(_winner_summary(ascap_work, top_result)))
+        lines.extend(
+            [
+                "",
+                "Writer Review",
+                "-------------",
+            ]
+        )
+        lines.extend(_prefixed_lines(_writer_review_lines(top_result)))
+        if ascap_work.song_code or ascap_work.iswc:
+            lines.extend(
+                [
+                    "",
+                    "Identifier Review",
+                    "-----------------",
+                ]
+            )
+            lines.extend(_prefixed_lines(_identifier_review_lines(top_result)))
+        lines.extend(
+            [
                 "",
                 "Matching Evidence",
                 "-----------------",
@@ -75,3 +100,78 @@ def _suggested_notes(result: CandidateAnalysisResult) -> list[str]:
         if discrepancy.suggested_review_note not in notes:
             notes.append(discrepancy.suggested_review_note)
     return notes or ["Review the top candidate metadata before follow-up."]
+
+
+def _winner_summary(ascap_work: AscapWork, result: CandidateAnalysisResult) -> list[str]:
+    lines = []
+    title_matches = result.comparison_details.ascap_title == result.comparison_details.candidate_title
+    if title_matches:
+        lines.append("The title normalizes to the same ASCAP work title.")
+    matched_writers = _matched_writer_lines(result)
+    if matched_writers:
+        lines.append(f"{len(matched_writers)} writer name(s) matched the candidate record.")
+    extra_writers = _discrepancy_names(result, "extra_writer")
+    missing_writers = _discrepancy_names(result, "missing_writer")
+    if extra_writers:
+        lines.append(f"Candidate has extra writer(s): {', '.join(extra_writers)}.")
+    if missing_writers:
+        lines.append(f"Candidate is missing searched writer(s): {', '.join(missing_writers)}.")
+    if ascap_work.song_code and result.candidate.public_work_id:
+        lines.append("ASCAP song code was compared with the candidate ASCAP Work ID.")
+    if ascap_work.iswc and result.candidate.iswc:
+        lines.append("ISWC was compared because it was provided for the work under review.")
+    return lines
+
+
+def _writer_review_lines(result: CandidateAnalysisResult) -> list[str]:
+    lines = _matched_writer_lines(result)
+    for name in _discrepancy_names(result, "missing_writer"):
+        lines.append(f"Missing from candidate: {name}")
+    for name in _discrepancy_names(result, "extra_writer"):
+        lines.append(f"Extra in candidate: {name}")
+    return lines
+
+
+def _matched_writer_lines(result: CandidateAnalysisResult) -> list[str]:
+    candidate_writers = result.comparison_details.candidate_writers
+    used_indexes: set[int] = set()
+    lines = []
+    for ascap_writer in result.comparison_details.ascap_writers:
+        best_index = -1
+        best_score = 0.0
+        best_name = ""
+        for index, candidate_writer in enumerate(candidate_writers):
+            if index in used_indexes:
+                continue
+            score = best_name_similarity(ascap_writer, candidate_writer)
+            if score > best_score:
+                best_score = score
+                best_index = index
+                best_name = candidate_writer
+        if best_score >= 0.88:
+            used_indexes.add(best_index)
+            lines.append(f"Matched: {ascap_writer} -> {best_name}")
+    return lines
+
+
+def _identifier_review_lines(result: CandidateAnalysisResult) -> list[str]:
+    lines = []
+    for item in result.matching_evidence:
+        if item.field in {"song_code", "iswc"}:
+            lines.append(item.description)
+    for item in result.discrepancies:
+        if item.field in {"song_code", "iswc"}:
+            lines.append(item.description)
+    return lines
+
+
+def _discrepancy_names(result: CandidateAnalysisResult, discrepancy_type: str) -> list[str]:
+    names = []
+    for item in result.discrepancies:
+        if item.type != discrepancy_type:
+            continue
+        if "'" in item.description:
+            names.append(item.description.split("'")[1])
+        else:
+            names.append(item.description)
+    return names
