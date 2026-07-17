@@ -197,12 +197,24 @@ def _infer_title(lines: list[str], source: str = "") -> str:
         if ascap_title:
             return ascap_title
 
+    current_section: str | None = None
     for line in lines:
         if _is_artifact_line(line):
             continue
         if compact := _compact_title_work_id(line):
             return compact[0]
         lowered = line.lower()
+        if SECTION_HEADERS["writer"].match(line):
+            current_section = "writer"
+            continue
+        if SECTION_HEADERS["publisher"].match(line):
+            current_section = "publisher"
+            continue
+        if SECTION_HEADERS["performer"].match(line) or SECTION_HEADERS["alternate_title"].match(line):
+            current_section = "performer"
+            continue
+        if current_section is not None:
+            continue
         if lowered.startswith(("writer", "publisher", "iswc", "work id", "bmi work id", "status", "sv status")):
             continue
         if FIELD_PATTERNS["iswc"].search(line):
@@ -333,10 +345,13 @@ def _is_artifact_line(line: str) -> bool:
         "include alternate titles",
         "logo",
         "name affiliation ipi #",
+        "performer",
         "print",
         "print all",
         "pro ipi",
         "total %",
+        "title",
+        "writer / composer",
     }
     if normalized in exact_artifacts:
         return True

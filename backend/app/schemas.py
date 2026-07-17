@@ -109,6 +109,36 @@ class BrowserAssistedCaptureResponse(BaseModel):
     guardrails: list[str] = Field(default_factory=list)
 
 
+class BrowserAssistedOpenTaskRequest(BaseModel):
+    session_id: str
+    task_id: str
+
+
+class BrowserAssistedOpenTaskResponse(BaseModel):
+    session_id: str
+    task_id: str
+    source: str
+    url: str
+    status: str
+    message: str
+
+
+class BrowserAssistedCaptureActivePageRequest(BaseModel):
+    session_id: str
+    source: str = Field(..., min_length=1)
+    user_approved_capture: bool
+
+
+class BrowserAssistedCloseRequest(BaseModel):
+    session_id: str
+
+
+class BrowserAssistedCloseResponse(BaseModel):
+    session_id: str
+    closed: bool
+    message: str
+
+
 Severity = Literal["low", "medium", "high"]
 
 

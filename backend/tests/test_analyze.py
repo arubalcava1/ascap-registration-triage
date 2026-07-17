@@ -65,6 +65,172 @@ def test_missing_iswc_does_not_block_analysis() -> None:
     assert data["top_result"]["candidate"]["title"] == "GREATEST, THE"
 
 
+def test_writer_set_quality_breaks_same_title_tie() -> None:
+    payload = {
+        "ascap_work": {
+            "title": "SANTERIA",
+            "song_code": None,
+            "iswc": None,
+            "alternate_titles": [],
+            "writers": [
+                {"name": "Gaugh Floyd I", "ipi_cae": None, "share": None},
+                {"name": "Nowell Bradley James", "ipi_cae": None, "share": None},
+                {"name": "Wilson Eric John", "ipi_cae": None, "share": None},
+            ],
+            "publishers": [],
+            "source_url": None,
+            "notes": None,
+        },
+        "candidates": [
+            {
+                "source": "ASCAP Repertory",
+                "title": "SANTERIA",
+                "public_work_id": "490865115",
+                "iswc": "T0709421237",
+                "alternate_titles": [],
+                "writers": [
+                    {"name": "Gaugh Floyd I", "ipi_cae": None, "share": None},
+                    {"name": "Nowell Bradley James", "ipi_cae": None, "share": None},
+                    {"name": "Wilson Eric John", "ipi_cae": None, "share": None},
+                ],
+                "publishers": [],
+                "status": None,
+                "source_url": None,
+                "raw_notes": None,
+            },
+            {
+                "source": "ASCAP Repertory",
+                "title": "SANTERIA",
+                "public_work_id": "920301270",
+                "iswc": "T3176629151",
+                "alternate_titles": [],
+                "writers": [
+                    {"name": "Burns Daimon Lashon", "ipi_cae": None, "share": None},
+                    {"name": "Nowell Bradley James", "ipi_cae": None, "share": None},
+                ],
+                "publishers": [],
+                "status": None,
+                "source_url": None,
+                "raw_notes": None,
+            },
+        ],
+    }
+
+    response = client.post("/api/analyze", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["top_result"]["candidate"]["public_work_id"] == "490865115"
+    assert data["results"][0]["confidence_score"] > data["results"][1]["confidence_score"]
+
+
+def test_writer_last_names_match_full_candidate_writer_names() -> None:
+    payload = {
+        "ascap_work": {
+            "title": "SANTERIA",
+            "song_code": None,
+            "iswc": None,
+            "alternate_titles": [],
+            "writers": [
+                {"name": "nowell", "ipi_cae": None, "share": None},
+                {"name": "gaugh", "ipi_cae": None, "share": None},
+                {"name": "wilson", "ipi_cae": None, "share": None},
+            ],
+            "publishers": [],
+            "source_url": None,
+            "notes": None,
+        },
+        "candidates": [
+            {
+                "source": "ASCAP Repertory",
+                "title": "SANTERIA",
+                "public_work_id": "490865115",
+                "iswc": "T0709421237",
+                "alternate_titles": [],
+                "writers": [
+                    {"name": "GAUGH FLOYD I", "ipi_cae": None, "share": None},
+                    {"name": "NOWELL BRADLEY JAMES", "ipi_cae": None, "share": None},
+                    {"name": "WILSON ERIC JOHN", "ipi_cae": None, "share": None},
+                ],
+                "publishers": [],
+                "status": None,
+                "source_url": None,
+                "raw_notes": None,
+            },
+            {
+                "source": "ASCAP Repertory",
+                "title": "SANTERIA",
+                "public_work_id": "920301270",
+                "iswc": "T3176629151",
+                "alternate_titles": [],
+                "writers": [
+                    {"name": "BURNS DAIMON LASHON", "ipi_cae": None, "share": None},
+                    {"name": "NOWELL BRADLEY JAMES", "ipi_cae": None, "share": None},
+                ],
+                "publishers": [],
+                "status": None,
+                "source_url": None,
+                "raw_notes": None,
+            },
+        ],
+    }
+
+    response = client.post("/api/analyze", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["top_result"]["candidate"]["public_work_id"] == "490865115"
+    assert data["top_result"]["confidence_label"] == "Strong Match"
+    assert data["results"][1]["confidence_label"] != "Strong Match"
+    wrong_match_discrepancy_types = {item["type"] for item in data["results"][1]["discrepancies"]}
+    assert "extra_writer" in wrong_match_discrepancy_types
+    assert "missing_writer" in wrong_match_discrepancy_types
+
+
+def test_extra_writer_prevents_strong_match_without_confirming_iswc() -> None:
+    payload = {
+        "ascap_work": {
+            "title": "SANTERIA",
+            "song_code": None,
+            "iswc": None,
+            "alternate_titles": [],
+            "writers": [
+                {"name": "gaugh", "ipi_cae": None, "share": None},
+                {"name": "nowell", "ipi_cae": None, "share": None},
+                {"name": "wilson", "ipi_cae": None, "share": None},
+            ],
+            "publishers": [],
+            "source_url": None,
+            "notes": None,
+        },
+        "candidates": [
+            {
+                "source": "ASCAP Repertory",
+                "title": "SANTERIA",
+                "public_work_id": "extra-1",
+                "iswc": None,
+                "alternate_titles": [],
+                "writers": [
+                    {"name": "GAUGH FLOYD I", "ipi_cae": None, "share": None},
+                    {"name": "NOWELL BRADLEY JAMES", "ipi_cae": None, "share": None},
+                    {"name": "WILSON ERIC JOHN", "ipi_cae": None, "share": None},
+                    {"name": "BURNS DAIMON LASHON", "ipi_cae": None, "share": None},
+                ],
+                "publishers": [],
+                "status": None,
+                "source_url": None,
+                "raw_notes": None,
+            }
+        ],
+    }
+
+    response = client.post("/api/analyze", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["top_result"]["confidence_label"] != "Strong Match"
+
+
 def _payload() -> dict:
     return {
         "ascap_work": {

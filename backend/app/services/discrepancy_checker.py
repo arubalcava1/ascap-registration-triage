@@ -1,4 +1,4 @@
-from rapidfuzz import fuzz, process
+from rapidfuzz import fuzz
 
 from app.schemas import AscapWork, CandidateWork, Discrepancy, Party
 from app.services.normalizer import (
@@ -118,8 +118,8 @@ def _party_discrepancies(
     candidate_display = {normalizer(party.name): party.name for party in candidate_parties}
 
     for ascap_name in normalized_party_names(ascap_parties, publisher=publisher):
-        match = process.extractOne(ascap_name, candidate_names, scorer=fuzz.token_sort_ratio)
-        if not match or match[1] < NAME_MATCH_THRESHOLD:
+        match_name, match_score = _best_name_match(ascap_name, candidate_names)
+        if not match_name or match_score < NAME_MATCH_THRESHOLD:
             discrepancies.append(
                 Discrepancy(
                     type=f"missing_{party_type}",
@@ -129,20 +129,20 @@ def _party_discrepancies(
                     suggested_review_note=f"Review whether this {party_type} is missing from the candidate record or listed under a variation.",
                 )
             )
-        elif ascap_name != match[0]:
+        elif ascap_name != match_name:
             discrepancies.append(
                 Discrepancy(
                     type=f"{party_type}_name_variation",
                     severity="low",
                     field=field,
-                    description=f"{party_type.title()} name appears similar but formatted differently: '{ascap_display[ascap_name]}' and '{candidate_display[match[0]]}'.",
+                    description=f"{party_type.title()} name appears similar but formatted differently: '{ascap_display[ascap_name]}' and '{candidate_display[match_name]}'.",
                     suggested_review_note=f"Review whether these {party_type} names refer to the same party.",
                 )
             )
 
     for candidate_name in normalized_party_names(candidate_parties, publisher=publisher):
-        match = process.extractOne(candidate_name, ascap_names, scorer=fuzz.token_sort_ratio)
-        if not match or match[1] < NAME_MATCH_THRESHOLD:
+        match_name, match_score = _best_name_match(candidate_name, ascap_names)
+        if not match_name or match_score < NAME_MATCH_THRESHOLD:
             discrepancies.append(
                 Discrepancy(
                     type=f"extra_{party_type}",
@@ -169,7 +169,7 @@ def _ipi_discrepancies(
             continue
         for candidate_party in candidate_parties:
             candidate_name = normalize_name(candidate_party.name)
-            if fuzz.token_sort_ratio(ascap_name, candidate_name) >= NAME_MATCH_THRESHOLD:
+            if _name_similarity(ascap_name, candidate_name) >= NAME_MATCH_THRESHOLD:
                 if candidate_party.ipi_cae and candidate_party.ipi_cae != ascap_party.ipi_cae:
                     discrepancies.append(
                         Discrepancy(
@@ -181,6 +181,27 @@ def _ipi_discrepancies(
                         )
                     )
     return discrepancies
+
+
+def _best_name_match(name: str, candidates: list[str]) -> tuple[str | None, float]:
+    if not candidates:
+        return None, 0.0
+    scored = [(candidate, _name_similarity(name, candidate)) for candidate in candidates]
+    return max(scored, key=lambda item: item[1])
+
+
+def _name_similarity(left: str, right: str) -> float:
+    left_tokens = _name_tokens(left)
+    right_tokens = _name_tokens(right)
+    if not left_tokens or not right_tokens:
+        return 0.0
+    if left_tokens <= right_tokens or right_tokens <= left_tokens:
+        return 100.0
+    return float(fuzz.token_sort_ratio(left, right))
+
+
+def _name_tokens(value: str) -> set[str]:
+    return {token for token in value.split() if len(token) > 1}
 
 
 def _share_discrepancies(ascap_work: AscapWork, candidate: CandidateWork) -> list[Discrepancy]:

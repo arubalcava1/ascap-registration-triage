@@ -101,6 +101,36 @@ export type BrowserAssistedCaptureResponse = {
   guardrails: string[];
 };
 
+export type BrowserAssistedOpenTaskRequest = {
+  session_id: string;
+  task_id: string;
+};
+
+export type BrowserAssistedOpenTaskResponse = {
+  session_id: string;
+  task_id: string;
+  source: string;
+  url: string;
+  status: string;
+  message: string;
+};
+
+export type BrowserAssistedCaptureActivePageRequest = {
+  session_id: string;
+  source: string;
+  user_approved_capture: boolean;
+};
+
+export type BrowserAssistedCloseRequest = {
+  session_id: string;
+};
+
+export type BrowserAssistedCloseResponse = {
+  session_id: string;
+  closed: boolean;
+  message: string;
+};
+
 export type Discrepancy = {
   type: string;
   severity: "low" | "medium" | "high";
@@ -162,7 +192,7 @@ export async function analyzeWork(payload: AnalyzeRequest): Promise<AnalyzeRespo
   });
 
   if (!response.ok) {
-    const detail = await response.text();
+    const detail = await readApiError(response);
     throw new Error(detail || `Analysis failed with status ${response.status}`);
   }
 
@@ -181,7 +211,7 @@ export async function discoverCandidates(
   });
 
   if (!response.ok) {
-    const detail = await response.text();
+    const detail = await readApiError(response);
     throw new Error(detail || `Discovery failed with status ${response.status}`);
   }
 
@@ -200,7 +230,7 @@ export async function parseCandidate(
   });
 
   if (!response.ok) {
-    const detail = await response.text();
+    const detail = await readApiError(response);
     throw new Error(detail || `Candidate parsing failed with status ${response.status}`);
   }
 
@@ -219,7 +249,7 @@ export async function startBrowserAssistedSession(
   });
 
   if (!response.ok) {
-    const detail = await response.text();
+    const detail = await readApiError(response);
     throw new Error(detail || `Browser-assisted session failed with status ${response.status}`);
   }
 
@@ -238,9 +268,84 @@ export async function captureBrowserVisibleText(
   });
 
   if (!response.ok) {
-    const detail = await response.text();
+    const detail = await readApiError(response);
     throw new Error(detail || `Visible text capture failed with status ${response.status}`);
   }
 
   return response.json() as Promise<BrowserAssistedCaptureResponse>;
+}
+
+export async function openBrowserAssistedTask(
+  payload: BrowserAssistedOpenTaskRequest,
+): Promise<BrowserAssistedOpenTaskResponse> {
+  const response = await fetch("/api/browser-assisted/open-task", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const detail = await readApiError(response);
+    throw new Error(detail || `Guided browser open failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<BrowserAssistedOpenTaskResponse>;
+}
+
+export async function captureBrowserActivePage(
+  payload: BrowserAssistedCaptureActivePageRequest,
+): Promise<BrowserAssistedCaptureResponse> {
+  const response = await fetch("/api/browser-assisted/capture-active-page", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const detail = await readApiError(response);
+    throw new Error(detail || `Active page capture failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<BrowserAssistedCaptureResponse>;
+}
+
+export async function closeBrowserAssistedSession(
+  payload: BrowserAssistedCloseRequest,
+): Promise<BrowserAssistedCloseResponse> {
+  const response = await fetch("/api/browser-assisted/close-session", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const detail = await readApiError(response);
+    throw new Error(detail || `Guided browser close failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<BrowserAssistedCloseResponse>;
+}
+
+async function readApiError(response: Response): Promise<string> {
+  const text = await response.text();
+  if (!text) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(text) as { detail?: unknown };
+    if (typeof parsed.detail === "string") {
+      return parsed.detail;
+    }
+  } catch {
+    return text;
+  }
+
+  return text;
 }

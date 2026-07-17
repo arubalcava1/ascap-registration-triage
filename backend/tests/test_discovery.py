@@ -43,6 +43,13 @@ def test_discover_candidates_returns_public_search_actions() -> None:
         "performer": "Sublime",
         "mode": "BMI Repertoire",
     }
+    assert "repertoire.bmi.com/Search/Search" in bmi_action["url"]
+    assert "Main_Search_Text=THE+GREATEST" in bmi_action["url"]
+    assert "Main_Search=Title" in bmi_action["url"]
+
+    iswc_action = next(action for action in data["actions"] if action["source"] == "ISWC lookup")
+    assert "Main_Search_Text=T-123456789-0" in iswc_action["url"]
+    assert "Main_Search=ISWC" in iswc_action["url"]
 
 
 def test_discover_candidates_omits_iswc_action_when_missing() -> None:
@@ -57,6 +64,9 @@ def test_discover_candidates_omits_iswc_action_when_missing() -> None:
         "ASCAP repertory",
         "BMI / Songview repertoire",
     }
+
+    ascap_action = next(action for action in data["actions"] if action["source"] == "ASCAP repertory")
+    assert "/ace/search/title/THE%20GREATEST?at=false" in ascap_action["url"]
 
 
 def _ascap_work() -> dict:

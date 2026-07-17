@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ASCAP Registration Triage</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div>
+          <div class="eyebrow">ASCAP Registration Triage</div>
+          <h1>Repertoire match assistant</h1>
+        </div>
+      </header>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Work under review</h2>
+            <p>Enter the ASCAP metadata you are checking.</p>
+          </div>
+          <button id="saveWorkButton" class="secondary-button" type="button">Save</button>
+        </div>
+        <div class="grid">
+          <label>
+            <span>Title</span>
+            <input id="titleInput" placeholder="THE GREATEST">
+          </label>
+          <label>
+            <span>ASCAP song code</span>
+            <input id="songCodeInput" placeholder="Optional">
+          </label>
+          <label>
+            <span>ISWC</span>
+            <input id="iswcInput" placeholder="Optional">
+          </label>
+          <label>
+            <span>Performer</span>
+            <input id="performerInput" placeholder="Optional">
+          </label>
+          <label>
+            <span>Writers</span>
+            <textarea id="writersInput" placeholder="Writer One | 50&#10;Writer Two | 50"></textarea>
+          </label>
+          <label>
+            <span>Publishers</span>
+            <textarea id="publishersInput" placeholder="Publisher One | 100"></textarea>
+          </label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Search sources</h2>
+            <p>Open ASCAP public repertoire in your normal Chrome tab. The search uses Performer, then Writer, then Publisher.</p>
+          </div>
+        </div>
+        <div class="actions single-action">
+          <button id="openAscapButton" class="secondary-button" type="button">Open ASCAP</button>
+        </div>
+        <div class="actions single-action compact-actions">
+          <button id="fillAscapButton" class="secondary-button" type="button">Fill ASCAP search</button>
+        </div>
+        <div class="actions single-action compact-actions">
+          <button id="copyTitleButton" class="secondary-button" type="button">Copy title</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Capture current tab</h2>
+            <p>Use this while viewing ASCAP public repertoire results. The extension expands visible results, captures each work separately, and runs analysis.</p>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="captureButton" class="primary-button" type="button">Capture and analyze</button>
+          <button id="clearCandidatesButton" class="secondary-button" type="button">Clear candidates</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Candidates</h2>
+            <p id="candidateCount">No candidates captured.</p>
+          </div>
+          <button id="analyzeButton" class="primary-button" type="button">Analyze</button>
+        </div>
+        <div id="candidateList" class="list"></div>
+      </section>
+
+      <section class="panel" id="resultsPanel">
+        <div class="panel-header">
+          <div>
+            <h2>Ranked results</h2>
+            <p id="summaryText">Run analysis after capturing candidates.</p>
+          </div>
+          <button id="copyReportButton" class="secondary-button" type="button">Copy report</button>
+        </div>
+        <div id="resultsList" class="list"></div>
+        <pre id="reportText" class="report"></pre>
+      </section>
+
+      <div id="statusMessage" class="status" role="status"></div>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

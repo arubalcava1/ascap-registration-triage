@@ -70,6 +70,46 @@ EXAMPLE MUSIC PUBLISHING ASCAP 987654321
     assert data["parse_result"]["candidate"]["writers"][0]["name"] == "ALEX RIVERA"
 
 
+def test_browser_assisted_open_task_rejects_unknown_session() -> None:
+    response = client.post(
+        "/api/browser-assisted/open-task",
+        json={"session_id": "browser-missing", "task_id": "task-missing"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Browser-assisted session was not found."
+
+
+def test_browser_assisted_capture_active_page_requires_user_approval() -> None:
+    start = client.post(
+        "/api/browser-assisted/start",
+        json={"ascap_work": _ascap_work(), "performer": "Example Artist"},
+    )
+    session_id = start.json()["session_id"]
+
+    response = client.post(
+        "/api/browser-assisted/capture-active-page",
+        json={
+            "session_id": session_id,
+            "source": "ASCAP Repertory",
+            "user_approved_capture": False,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Active page capture requires explicit user approval."
+
+
+def test_browser_assisted_close_session_is_idempotent() -> None:
+    response = client.post(
+        "/api/browser-assisted/close-session",
+        json={"session_id": "browser-anything"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["closed"] is True
+
+
 def _ascap_work() -> dict:
     return {
         "title": "THE GREATEST",

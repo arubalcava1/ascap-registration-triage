@@ -169,6 +169,31 @@ MAIN TITLE FROM TV SHOW THE GREATEST AMERICAN HERO
     assert "No ISWC was parsed from the pasted text." not in data["warnings"]
 
 
+def test_parse_candidate_does_not_infer_performer_header_as_title() -> None:
+    response = client.post(
+        "/api/parse-candidate",
+        json={
+            "source": "Songview",
+            "raw_text": """
+Performer
+ISWC
+T3369942774
+Writers
+GEYER STEPHEN G
+POST MIKE
+Publishers
+DARJEN MUSIC
+""",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["candidate"]["title"] != "Performer"
+    assert "Could not confidently parse a title." in data["warnings"]
+
+
 def test_parse_candidate_from_ascap_copied_result_selection() -> None:
     response = client.post(
         "/api/parse-candidate",

@@ -26,8 +26,11 @@ import {
   CandidateDiscoveryResponse,
   CandidateParseResponse,
   CandidateWork,
+  captureBrowserActivePage,
   captureBrowserVisibleText,
+  closeBrowserAssistedSession,
   discoverCandidates,
+  openBrowserAssistedTask,
   Party,
   parseCandidate,
   startBrowserAssistedSession,
@@ -91,6 +94,10 @@ function App() {
   const [isStartingBrowserAssist, setIsStartingBrowserAssist] = useState(false);
   const [userApprovedCapture, setUserApprovedCapture] = useState(false);
   const [isCapturingVisibleText, setIsCapturingVisibleText] = useState(false);
+  const [stagedCaptureNotice, setStagedCaptureNotice] = useState("");
+  const [activeBrowserSource, setActiveBrowserSource] = useState("");
+  const [isOpeningGuidedBrowser, setIsOpeningGuidedBrowser] = useState(false);
+  const [isClosingGuidedBrowser, setIsClosingGuidedBrowser] = useState(false);
 
   const canAnalyze = title.trim().length > 0 && candidates.some((candidate) => candidate.title.trim());
   const topResult = response?.top_result;
@@ -202,6 +209,7 @@ function App() {
     setPasteSource(parseSourceFromDiscovery(link));
     setParseResult(null);
     setParseError("");
+    setStagedCaptureNotice("");
   }
 
   function openDiscoverySource(link: CandidateDiscoveryAction) {
@@ -209,10 +217,46 @@ function App() {
     window.open(link.url, "_blank", "noopener");
   }
 
-  function openBrowserTask(task: BrowserAssistedTask) {
-    setOpenedSources((current) => uniqueValues([...current, task.source]));
-    setPasteSource(parseSourceFromSourceName(task.source));
-    window.open(task.url, "_blank", "noopener");
+  async function openBrowserTask(task: BrowserAssistedTask) {
+    if (!browserSession) {
+      setBrowserAssistError("Start a guided browser session before opening a task.");
+      return;
+    }
+
+    setBrowserAssistError("");
+    setIsOpeningGuidedBrowser(true);
+
+    try {
+      const result = await openBrowserAssistedTask({
+        session_id: browserSession.session_id,
+        task_id: task.task_id,
+      });
+      setOpenedSources((current) => uniqueValues([...current, task.source]));
+      setActiveBrowserSource(parseSourceFromSourceName(result.source));
+      stageBrowserCapture(result.source);
+      setStagedCaptureNotice(result.message);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Guided browser open failed.";
+      if (message.includes("session was not found")) {
+        resetGuidedBrowserSession();
+        setBrowserAssistError("The guided browser session expired after the backend restarted. Start guided browser search again.");
+      } else {
+        setBrowserAssistError(message);
+      }
+    } finally {
+      setIsOpeningGuidedBrowser(false);
+    }
+  }
+
+  function stageBrowserCapture(sourceName: string) {
+    const source = parseSourceFromSourceName(sourceName);
+    setPasteSource(source);
+    setParseResult(null);
+    setParseError("");
+    setUserApprovedCapture(false);
+    setStagedCaptureNotice(
+      `${source} capture staged. Paste the visible public result text below, confirm approval, then capture it into a candidate.`,
+    );
   }
 
   async function handleCaptureApprovedVisibleText() {
@@ -236,11 +280,69 @@ function App() {
       setParsedSources((current) => uniqueValues([...current, pasteSource]));
       setPasteText("");
       setUserApprovedCapture(false);
+      setStagedCaptureNotice("");
     } catch (caught) {
       setParseError(caught instanceof Error ? caught.message : "Visible text capture failed.");
     } finally {
       setIsCapturingVisibleText(false);
     }
+  }
+
+  async function handleCaptureActivePage() {
+    if (!browserSession) {
+      setParseError("Start a guided browser session before capturing the active page.");
+      return;
+    }
+
+    setParseError("");
+    setIsCapturingVisibleText(true);
+
+    try {
+      const result = await captureBrowserActivePage({
+        session_id: browserSession.session_id,
+        source: activeBrowserSource || pasteSource,
+        user_approved_capture: userApprovedCapture,
+      });
+      setParseResult(result.parse_result);
+      setCandidates((current) => [...current, candidateToDraft(result.parse_result.candidate)]);
+      setParsedSources((current) => uniqueValues([...current, activeBrowserSource || pasteSource]));
+      setPasteText("");
+      setUserApprovedCapture(false);
+      setStagedCaptureNotice("");
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Active page capture failed.";
+      if (message.includes("session was not found")) {
+        resetGuidedBrowserSession();
+        setParseError("The guided browser session expired after the backend restarted. Start guided browser search again.");
+      } else {
+        setParseError(message);
+      }
+    } finally {
+      setIsCapturingVisibleText(false);
+    }
+  }
+
+  async function handleCloseGuidedBrowser() {
+    if (!browserSession) {
+      return;
+    }
+
+    setIsClosingGuidedBrowser(true);
+    try {
+      await closeBrowserAssistedSession({ session_id: browserSession.session_id });
+      resetGuidedBrowserSession();
+    } catch (caught) {
+      setBrowserAssistError(caught instanceof Error ? caught.message : "Guided browser close failed.");
+    } finally {
+      setIsClosingGuidedBrowser(false);
+    }
+  }
+
+  function resetGuidedBrowserSession() {
+    setBrowserSession(null);
+    setActiveBrowserSource("");
+    setUserApprovedCapture(false);
+    setStagedCaptureNotice("");
   }
 
   async function handleParseCandidate() {
@@ -256,6 +358,7 @@ function App() {
       setCandidates((current) => [...current, candidateToDraft(result.candidate)]);
       setParsedSources((current) => uniqueValues([...current, pasteSource]));
       setPasteText("");
+      setStagedCaptureNotice("");
     } catch (caught) {
       setParseError(caught instanceof Error ? caught.message : "Candidate parsing failed.");
     } finally {
@@ -436,7 +539,7 @@ function App() {
                       onClick={handleStartBrowserAssist}
                     >
                       {isStartingBrowserAssist ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-                      Start browser-assisted search
+                      Start guided browser search
                     </Button>
                   </div>
                 </CardHeader>
@@ -457,10 +560,23 @@ function App() {
                     <div className="rounded-lg border border-sky-300/20 bg-sky-300/10 p-4 text-sm text-slate-200">
                       <div className="mb-3 flex items-start justify-between gap-3">
                         <div>
-                          <h3 className="font-semibold text-white">Browser-assisted discovery prototype</h3>
+                          <h3 className="font-semibold text-white">Guided browser discovery prototype</h3>
                           <p className="mt-1 text-xs leading-5 text-slate-300">{browserSession.summary}</p>
                         </div>
-                        <ShieldCheck className="h-4 w-4 shrink-0 text-sky-200" />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="h-8 shrink-0 px-3 text-xs"
+                          disabled={isClosingGuidedBrowser}
+                          onClick={handleCloseGuidedBrowser}
+                        >
+                          {isClosingGuidedBrowser ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          )}
+                          Close browser
+                        </Button>
                       </div>
                       <div className="mb-4 rounded-md border border-white/10 bg-slate-950/35 p-3">
                         <div className="mb-2 text-xs uppercase tracking-[0.14em] text-slate-500">Guardrails</div>
@@ -488,18 +604,28 @@ function App() {
                               ))}
                             </div>
                             <div className="flex flex-wrap gap-2">
-                              <Button type="button" variant="secondary" className="h-9" onClick={() => openBrowserTask(task)}>
-                                <ExternalLink className="h-4 w-4" />
-                                Open public page
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                className="h-9"
+                                disabled={isOpeningGuidedBrowser}
+                                onClick={() => openBrowserTask(task)}
+                              >
+                                {isOpeningGuidedBrowser ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <ExternalLink className="h-4 w-4" />
+                                )}
+                                Open in guided browser
                               </Button>
                               <Button
                                 type="button"
                                 variant="secondary"
                                 className="h-9"
-                                onClick={() => setPasteSource(parseSourceFromSourceName(task.source))}
+                                onClick={() => stageBrowserCapture(task.source)}
                               >
                                 <ClipboardList className="h-4 w-4" />
-                                Stage capture
+                                Use manual paste
                               </Button>
                             </div>
                           </div>
@@ -616,8 +742,19 @@ function App() {
                   />
                 </Field>
 
+                {stagedCaptureNotice && (
+                  <div className="rounded-lg border border-sky-300/20 bg-sky-300/10 p-4 text-sm leading-6 text-sky-100 md:col-span-3">
+                    {stagedCaptureNotice}
+                  </div>
+                )}
+
                 {browserSession && (
                   <div className="rounded-lg border border-white/10 bg-slate-950/35 p-4 md:col-span-3">
+                    {activeBrowserSource && (
+                      <div className="mb-3 rounded-md border border-sky-300/20 bg-sky-300/10 p-3 text-sm text-sky-100">
+                        Active guided browser source: {activeBrowserSource}. Open or expand the correct public result in the browser window before capturing.
+                      </div>
+                    )}
                     <label className="flex items-start gap-3 text-sm leading-5 text-slate-300">
                       <input
                         type="checkbox"
@@ -629,15 +766,27 @@ function App() {
                         I confirm this text is visible public repertoire page content that I approved for capture. No login credentials, private member data, or blocked content is included.
                       </span>
                     </label>
-                    <Button
-                      type="button"
-                      className="mt-4 h-10 w-full"
-                      disabled={!pasteText.trim() || !userApprovedCapture || isCapturingVisibleText}
-                      onClick={handleCaptureApprovedVisibleText}
-                    >
-                      {isCapturingVisibleText ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-                      Capture approved visible text
-                    </Button>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <Button
+                        type="button"
+                        className="h-10 w-full"
+                        disabled={!activeBrowserSource || !userApprovedCapture || isCapturingVisibleText}
+                        onClick={handleCaptureActivePage}
+                      >
+                        {isCapturingVisibleText ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                        Capture active browser page
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="h-10 w-full"
+                        disabled={!pasteText.trim() || !userApprovedCapture || isCapturingVisibleText}
+                        onClick={handleCaptureApprovedVisibleText}
+                      >
+                        {isCapturingVisibleText ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardList className="h-4 w-4" />}
+                        Capture pasted text
+                      </Button>
+                    </div>
                   </div>
                 )}
 
