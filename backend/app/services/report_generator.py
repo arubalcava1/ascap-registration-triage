@@ -9,11 +9,11 @@ def generate_report_text(
     disclaimer: str,
 ) -> str:
     lines = [
-        "ASCAP Registration Triage Report",
-        "================================",
+        "ASCAP Possible Match Review",
+        "===========================",
         "",
-        "Work Under Review",
-        "-----------------",
+        "ASCAP Work Searched",
+        "-------------------",
         f"Title: {ascap_work.title}",
         f"ASCAP Song Code: {ascap_work.song_code or 'Not provided'}",
         f"ISWC: {ascap_work.iswc or 'Not shown'}",

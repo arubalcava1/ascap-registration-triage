@@ -24,6 +24,7 @@ const elements = {
   summaryText: document.querySelector("#summaryText"),
   reportText: document.querySelector("#reportText"),
   statusMessage: document.querySelector("#statusMessage"),
+  backendStatus: document.querySelector("#backendStatus"),
 };
 
 let state = {
@@ -46,6 +47,7 @@ async function init() {
   await loadState();
   bindEvents();
   render();
+  checkBackendStatus();
 }
 
 function bindEvents() {
@@ -57,6 +59,7 @@ function bindEvents() {
   elements.clearCandidatesButton.addEventListener("click", clearCandidates);
   elements.analyzeButton.addEventListener("click", analyzeCandidates);
   elements.copyReportButton.addEventListener("click", copyReport);
+  elements.candidateList.addEventListener("click", handleCandidateListClick);
 
   [
     elements.titleInput,
@@ -99,14 +102,12 @@ async function openAscapSearch() {
     setStatus("Enter a title before opening ASCAP search.", true);
     return;
   }
-  const plan = buildAscapSearchPlan(state.work).slice(0, 4);
-  for (const [index, search] of plan.entries()) {
-    await chrome.tabs.create({
-      url: buildAscapSearchUrl(state.work.title, search.type, search.term),
-      active: index === 0,
-    });
-  }
-  setStatus(`Opened ${plan.length} ASCAP search tab(s).`);
+  const [search] = buildAscapSearchPlan(state.work);
+  await chrome.tabs.create({
+    url: buildAscapSearchUrl(state.work.title, search.type, search.term),
+    active: true,
+  });
+  setStatus("Opened ASCAP search tab.");
 }
 
 async function fillAscapSearch() {
@@ -178,19 +179,27 @@ async function captureCurrentTab() {
     });
 
     if (!result?.results?.length) {
+      state.capture_diagnostics = buildFailedCaptureDiagnostics(result);
+      await saveState();
+      render();
       throw new Error(result?.message || "No ASCAP repertoire results were captured from this tab.");
     }
 
     const parsedCandidates = [];
     const parseDiagnostics = [];
     for (const capturedResult of result.results) {
-      const parsed = await apiFetch("/api/parse-candidate", {
-        method: "POST",
-        body: JSON.stringify({
-          source: "ASCAP Repertory",
-          raw_text: capturedResult.text,
-        }),
-      });
+      let parsed;
+      try {
+        parsed = await apiFetch("/api/parse-candidate", {
+          method: "POST",
+          body: JSON.stringify({
+            source: "ASCAP Repertory",
+            raw_text: capturedResult.text,
+          }),
+        });
+      } catch (error) {
+        throw new Error(`Could not parse captured ASCAP result ${capturedResult.index + 1}: ${error.message}`);
+      }
       parsedCandidates.push({
         ...parsed.candidate,
         source_url: result.url,
@@ -276,6 +285,29 @@ async function clearCandidates() {
   setStatus("Candidates cleared.");
 }
 
+async function removeCandidate(index) {
+  const candidate = state.candidates[index];
+  if (!candidate) {
+    return;
+  }
+  state.candidates = state.candidates.filter((_, candidateIndex) => candidateIndex !== index);
+  state.analysis = null;
+  await saveState();
+  render();
+  setStatus(`Removed candidate: ${candidate.title || "Untitled candidate"}.`);
+}
+
+function handleCandidateListClick(event) {
+  const button = event.target.closest("[data-remove-candidate]");
+  if (!button) {
+    return;
+  }
+  const index = Number.parseInt(button.dataset.removeCandidate, 10);
+  if (Number.isInteger(index)) {
+    removeCandidate(index);
+  }
+}
+
 async function copyReport() {
   if (!state.analysis?.report_text) {
     setStatus("No report to copy yet.", true);
@@ -283,6 +315,30 @@ async function copyReport() {
   }
   await navigator.clipboard.writeText(state.analysis.report_text);
   setStatus("Report copied.");
+}
+
+async function checkBackendStatus() {
+  setBackendStatus("checking", "Backend checking");
+  try {
+    const response = await fetch(`${API_BASE}/health`);
+    if (!response.ok) {
+      throw new Error(`status ${response.status}`);
+    }
+    const data = await response.json();
+    if (data?.status !== "ok") {
+      throw new Error("unexpected health response");
+    }
+    setBackendStatus("connected", "Backend connected");
+  } catch {
+    setBackendStatus("error", "Backend not running");
+  }
+}
+
+function setBackendStatus(status, label) {
+  elements.backendStatus.textContent = label;
+  elements.backendStatus.classList.toggle("backend-status--checking", status === "checking");
+  elements.backendStatus.classList.toggle("backend-status--connected", status === "connected");
+  elements.backendStatus.classList.toggle("backend-status--error", status === "error");
 }
 
 function buildAscapWork() {
@@ -325,7 +381,7 @@ function render() {
   elements.candidateCount.textContent =
     state.candidates.length === 0
       ? "No candidates captured."
-      : `${state.candidates.length} candidate(s) captured.`;
+      : `Ready: ${state.candidates.length} ASCAP candidate(s) captured.`;
   elements.analyzeButton.disabled = state.candidates.length === 0;
   renderSearchPlan();
   renderCaptureDiagnostics();
@@ -338,6 +394,7 @@ function render() {
             <span class="item-name">${escapeHtml(index + 1)}. ${escapeHtml(candidate.title)}</span>
             <span>${escapeHtml(candidate.source)}</span>
           </div>
+          <button class="remove-button" type="button" data-remove-candidate="${escapeHtml(index)}">Remove</button>
           <div class="item-meta">
             ${escapeHtml(candidate.public_work_id || "No public ID")} - ${escapeHtml(candidate.iswc || "No ISWC")}
           </div>
@@ -374,6 +431,7 @@ function render() {
             <span class="score">${escapeHtml(result.confidence_score.toFixed(0))}%<br>${escapeHtml(result.confidence_label)}</span>
           </div>
           <div class="item-meta">${escapeHtml(result.candidate.source)}${formatIdentifierMetaClean(result)}</div>
+          ${renderRankReason(result)}
           ${renderWriterReview(result)}
           ${renderIdentifierReview(result)}
           ${renderEvidenceReview(result)}
@@ -391,16 +449,18 @@ function renderCaptureDiagnostics() {
     return;
   }
 
-  const issueLines = (diagnostics.parse_details || [])
-    .filter((item) => item.warnings?.length)
+  const parsedLines = (diagnostics.parse_details || [])
     .map(
       (item) => `
         <div class="diagnostic-row">
-          <span>${escapeHtml(item.title || `Result ${item.index}`)}</span>
-          <span>${escapeHtml(item.warnings.join(" "))}</span>
+          <span>${escapeHtml(formatCaptureDiagnosticTitle(item))}</span>
+          <span>${escapeHtml(formatCaptureDiagnosticDetail(item))}</span>
         </div>
       `,
     )
+    .join("");
+  const recoveryLines = (diagnostics.recovery_notes || [])
+    .map((note) => `<div class="diagnostic-row"><span>Recovery</span><span>${escapeHtml(note)}</span></div>`)
     .join("");
 
   elements.captureDiagnostics.classList.remove("hidden");
@@ -412,8 +472,48 @@ function renderCaptureDiagnostics() {
       <span>Duplicates ${escapeHtml(diagnostics.duplicates || 0)}</span>
       <span>Expand clicks ${escapeHtml(diagnostics.expand_clicks || 0)}</span>
     </div>
-    ${issueLines ? `<div class="diagnostic-issues">${issueLines}</div>` : ""}
+    ${parsedLines || recoveryLines ? `<div class="diagnostic-issues">${parsedLines}${recoveryLines}</div>` : ""}
   `;
+}
+
+function buildFailedCaptureDiagnostics(result) {
+  return {
+    found: result?.diagnostics?.found || 0,
+    captured: 0,
+    parsed: 0,
+    added: 0,
+    duplicates: 0,
+    expand_clicks: result?.diagnostics?.expand_clicks || 0,
+    parse_details: [],
+    recovery_notes: captureRecoveryNotes(result),
+  };
+}
+
+function captureRecoveryNotes(result) {
+  const notes = [];
+  const diagnostics = result?.diagnostics || {};
+  if (!diagnostics.has_identifiers) {
+    notes.push("No visible ASCAP Work ID / ISWC pattern was detected. Wait for results to finish loading, then try again.");
+  }
+  if (!diagnostics.has_result_words) {
+    notes.push("The active tab does not look like an ASCAP result page yet. Make sure you are on the public repertoire results page.");
+  }
+  if ((diagnostics.expand_clicks || 0) === 0) {
+    notes.push("No visible Expand button was found. If ASCAP shows collapsed works, scroll near the result cards and try again.");
+  }
+  return notes.length ? notes : ["ASCAP content was visible, but no complete work block was captured. Wait a moment, then retry capture."];
+}
+
+function formatCaptureDiagnosticTitle(item) {
+  const title = item.title || `Result ${item.index}`;
+  const id = item.public_work_id ? ` - ${item.public_work_id}` : "";
+  return `${item.index}. ${title}${id}`;
+}
+
+function formatCaptureDiagnosticDetail(item) {
+  const parsedFields = item.parsed_fields?.length ? `Parsed: ${item.parsed_fields.join(", ")}` : "No fields parsed";
+  const warnings = item.warnings?.length ? ` Warnings: ${item.warnings.join(" ")}` : "";
+  return `${parsedFields}.${warnings}`;
 }
 
 function renderSearchPlan() {
@@ -424,7 +524,6 @@ function renderSearchPlan() {
   }
 
   elements.searchPlan.innerHTML = plan
-    .slice(0, 4)
     .map(
       (item) => `
         <div class="search-chip">
@@ -457,6 +556,60 @@ function formatIdentifierMetaClean(result) {
     pieces.push(`ISWC ${result.candidate.iswc}`);
   }
   return pieces.length ? ` - ${escapeHtml(pieces.join(" - "))}` : "";
+}
+
+function renderRankReason(result) {
+  const summary = buildRankReason(result);
+  const issues = buildRankIssueSummary(result);
+  return `
+    <div class="review-block rank-reason">
+      <div class="review-title">Why this rank</div>
+      <div class="match-line">${escapeHtml(summary)}</div>
+      ${issues ? `<div class="warning-line">${escapeHtml(issues)}</div>` : ""}
+    </div>
+  `;
+}
+
+function buildRankReason(result) {
+  const titleMatched = result.comparison_details.ascap_title === result.comparison_details.candidate_title;
+  const matchedWriters = buildMatchedWriterPairs(
+    result.comparison_details.ascap_writers || [],
+    result.comparison_details.candidate_writers || [],
+  );
+  const searchedWriterCount = result.comparison_details.ascap_writers?.length || 0;
+  const parts = [];
+
+  parts.push(titleMatched ? "Title matched" : "Title is similar but not exact");
+  if (searchedWriterCount) {
+    parts.push(`${matchedWriters.length} of ${searchedWriterCount} searched writer(s) matched`);
+  } else {
+    parts.push("No searched writers were provided");
+  }
+  if (hasProvidedIdentifierEvidence(result)) {
+    parts.push("provided identifier matched");
+  }
+  return `${parts.join("; ")}.`;
+}
+
+function buildRankIssueSummary(result) {
+  const writerDiscrepancies = result.discrepancies.filter((item) => item.field === "writers");
+  const missingWriters = extractNamesFromDiscrepancies(writerDiscrepancies.filter((item) => item.type === "missing_writer"));
+  const extraWriters = extractNamesFromDiscrepancies(writerDiscrepancies.filter((item) => item.type === "extra_writer"));
+  const issues = [];
+  if (missingWriters.length) {
+    issues.push(`Missing searched writer(s): ${missingWriters.join(", ")}`);
+  }
+  if (extraWriters.length) {
+    issues.push(`Extra candidate writer(s): ${extraWriters.join(", ")}`);
+  }
+  return issues.join(". ");
+}
+
+function hasProvidedIdentifierEvidence(result) {
+  const comparableFields = [];
+  if (state.work.song_code?.trim()) comparableFields.push("song_code");
+  if (state.work.iswc?.trim()) comparableFields.push("iswc");
+  return result.matching_evidence.some((item) => comparableFields.includes(item.field));
 }
 
 function renderWriterReview(result) {
@@ -563,12 +716,20 @@ function extractNamesFromDiscrepancies(discrepancies) {
 }
 
 async function apiFetch(path, options) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-    },
-    ...options,
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      headers: {
+        "Content-Type": "application/json",
+      },
+      ...options,
+    });
+  } catch (error) {
+    setBackendStatus("error", "Backend not running");
+    throw new Error(
+      `Backend request failed. Start FastAPI at ${API_BASE}, then retry. Original error: ${error.message}`,
+    );
+  }
 
   if (!response.ok) {
     const message = await readApiError(response);
@@ -621,14 +782,14 @@ function buildAscapSearchPlan(work) {
     return [{ type: "Performer", term: work.performer.trim() }];
   }
 
-  const writers = partySearchTerms(work.writers);
-  if (writers.length) {
-    return writers.map((term) => ({ type: "Writer", term }));
+  const writer = firstWriterSearchTerm(work.writers);
+  if (writer) {
+    return [{ type: "Writer", term: writer }];
   }
 
-  const publishers = partySearchTerms(work.publishers);
-  if (publishers.length) {
-    return publishers.map((term) => ({ type: "Publisher", term }));
+  const publisher = firstPublisherSearchTerm(work.publishers);
+  if (publisher) {
+    return [{ type: "Publisher", term: publisher }];
   }
 
   return [{ type: "Title", term: "" }];
@@ -669,24 +830,6 @@ function firstPartySearchTerm(value) {
 
   const [name] = firstLine.split("|").map((part) => part.trim());
   return name;
-}
-
-function partySearchTerms(value) {
-  const seen = new Set();
-  return (value || "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => line.split("|")[0].trim())
-    .filter(Boolean)
-    .filter((term) => {
-      const key = term.toLowerCase();
-      if (seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    });
 }
 
 function formatPartySummary(parties = []) {
@@ -901,9 +1044,10 @@ async function extractVisibleRepertoireResults() {
   let results = [];
   let expandClickCount = 0;
 
+  await waitForPageSettled(700);
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     expandClickCount += await expandVisibleAscapResults();
-    await waitForPageSettled(attempt === 1 ? 900 : 1300);
+    await waitForPageSettled(attempt === 1 ? 1200 : 1600);
     results = findAscapResultBlocks();
     if (results.length) {
       break;
@@ -930,6 +1074,8 @@ async function extractVisibleRepertoireResults() {
     diagnostics: {
       found: 0,
       expand_clicks: expandClickCount,
+      has_identifiers: hasAny(document.body?.innerText || "", ["ISWC", "Work ID"]),
+      has_result_words: hasAny(document.body?.innerText || "", ["Writers", "Publishers", "Performers", "Results"]),
     },
     message: "No expanded ASCAP result blocks were found. Wait for ASCAP results to finish expanding, then try again.",
   };
@@ -967,6 +1113,7 @@ async function extractVisibleRepertoireResults() {
   }
 
   function findAscapResultBlocks() {
+    const pageTextResults = dedupeResultTexts(splitAscapResultsFromPageText(document.body?.innerText || ""));
     const elements = Array.from(document.querySelectorAll("article, section, [class*='result'], [class*='work'], [class*='card'], div"));
     const blocks = elements
       .filter(isVisible)
@@ -994,10 +1141,8 @@ async function extractVisibleRepertoireResults() {
       selectedBlocks.push(block);
     }
 
-    let resultTexts = dedupeResultTexts(selectedBlocks.map((block) => block.text));
-    if (resultTexts.length <= 1) {
-      resultTexts = dedupeResultTexts(splitAscapResultsFromPageText(document.body?.innerText || ""));
-    }
+    const domResults = dedupeResultTexts(selectedBlocks.map((block) => block.text));
+    const resultTexts = pageTextResults.length >= domResults.length ? pageTextResults : mergeResultTexts(pageTextResults, domResults);
 
     return resultTexts.map((text, index) => ({
       text,
@@ -1036,25 +1181,71 @@ async function extractVisibleRepertoireResults() {
 
   function splitAscapResultsFromPageText(value) {
     const lines = normalizeText(value).split("\n");
-    const resultStarts = [];
+    const resultStarts = new Set();
+
     for (let index = 0; index < lines.length; index += 1) {
       const current = lines[index];
-      const next = lines.slice(index + 1, index + 5).join("\n");
-      if (isLikelyTitleLine(current) && /\bISWC\s*:?\s*T[-\s]?\d{3}/i.test(next) && /\bWork ID\s*:?\s*\d{5,10}/i.test(next)) {
-        resultStarts.push(index);
+      const nearby = lines.slice(index, index + 8).join("\n");
+      if (isLikelyTitleLine(current) && hasAscapIdentifiers(nearby)) {
+        resultStarts.add(index);
+        continue;
+      }
+
+      if (hasAscapIdentifiers(current) || /\b(?:ISWC|Work ID)\s*:?/i.test(current)) {
+        const titleIndex = findPreviousTitleLine(lines, index);
+        if (titleIndex !== -1) {
+          resultStarts.add(titleIndex);
+        }
       }
     }
 
+    const starts = Array.from(resultStarts).sort((left, right) => left - right);
     const chunks = [];
-    for (let index = 0; index < resultStarts.length; index += 1) {
-      const start = resultStarts[index];
-      const end = resultStarts[index + 1] || lines.length;
-      const chunk = lines.slice(start, end).join("\n");
+    for (let index = 0; index < starts.length; index += 1) {
+      const start = starts[index];
+      const end = starts[index + 1] || findResultEnd(lines, start);
+      const chunk = trimResultChunk(lines.slice(start, end)).join("\n");
       if (isLikelyWorkResult({ text: chunk })) {
         chunks.push(chunk);
       }
     }
     return chunks;
+  }
+
+  function hasAscapIdentifiers(text) {
+    return /\bISWC\s*:?\s*T[-\s]?\d{3}/i.test(text) && /\bWork ID\s*:?\s*\d{5,10}/i.test(text);
+  }
+
+  function findPreviousTitleLine(lines, index) {
+    for (let offset = 0; offset <= 5; offset += 1) {
+      const candidateIndex = index - offset;
+      if (candidateIndex < 0) {
+        break;
+      }
+      if (isLikelyTitleLine(lines[candidateIndex])) {
+        return candidateIndex;
+      }
+    }
+    return -1;
+  }
+
+  function findResultEnd(lines, start) {
+    for (let index = start + 1; index < lines.length; index += 1) {
+      if (isLikelyTitleLine(lines[index]) && hasAscapIdentifiers(lines.slice(index, index + 8).join("\n"))) {
+        return index;
+      }
+    }
+    return lines.length;
+  }
+
+  function trimResultChunk(lines) {
+    const stopIndex = lines.findIndex((line, index) => {
+      if (index < 6) {
+        return false;
+      }
+      return /^(share|print|collapse)$/i.test(line) || /^ask ascap$/i.test(line);
+    });
+    return stopIndex === -1 ? lines : lines.slice(0, stopIndex);
   }
 
   function isLikelyTitleLine(line) {
@@ -1100,6 +1291,10 @@ async function extractVisibleRepertoireResults() {
       }
     }
     return deduped;
+  }
+
+  function mergeResultTexts(primaryTexts, fallbackTexts) {
+    return dedupeResultTexts([...primaryTexts, ...fallbackTexts]);
   }
 
   function matchValue(text, pattern) {

@@ -1,18 +1,29 @@
 # ASCAP Registration Triage Extension
 
-Chrome extension MVP for capturing visible ASCAP public repertoire page text and sending it to the local FastAPI triage backend.
+Chrome extension MVP for capturing visible ASCAP public repertoire results and sending them to the local FastAPI triage backend.
 
-## Local Setup
+## Start Locally
 
-1. Start the backend:
+From the repo root:
 
-   ```powershell
-   cd backend
-   .\venv\Scripts\Activate.ps1
-   python -m uvicorn app.main:app --reload
-   ```
+```powershell
+cd backend
+.\venv\Scripts\Activate.ps1
+python -m uvicorn app.main:app --reload
+```
 
-2. Open Chrome extensions:
+The backend must be available at:
+
+```text
+http://127.0.0.1:8000
+```
+
+The popup shows `Backend connected` when `/health` is reachable.
+
+## Load The Extension
+
+1. Open Chrome.
+2. Go to:
 
    ```text
    chrome://extensions
@@ -22,17 +33,43 @@ Chrome extension MVP for capturing visible ASCAP public repertoire page text and
 4. Click **Load unpacked**.
 5. Select this `extension` folder.
 
+After changing extension files, go back to `chrome://extensions` and click **Reload** on the extension card.
+
 ## Current MVP Flow
 
-1. Open a public ASCAP repertoire result page.
-2. Open the extension popup.
-3. Enter the ASCAP work metadata under review.
-4. Use **Open ASCAP** to open the public ASCAP repertory search.
-5. On the ASCAP public source tab, use **Fill ASCAP search** to populate visible search fields from the saved metadata.
-6. Review the filled fields and click the public site's search button yourself.
-7. Click **Capture and analyze** while viewing ASCAP public results.
-8. The extension expands visible ASCAP results, captures each work separately, sends them to the parser, and runs analysis.
-9. Review the ranked results and generated report.
+1. Open the extension popup.
+2. Enter the ASCAP work metadata under review.
+3. Click **Open ASCAP searches**.
+4. If needed, click **Fill ASCAP search** on the ASCAP public repertoire page.
+5. Review the filled ASCAP fields and run the ASCAP search manually.
+6. While viewing ASCAP public results, click **Capture and analyze**.
+7. Review captured candidates.
+8. Remove any bad capture if needed.
+9. Review ranked results and copy the report.
+
+## Troubleshooting
+
+- `Backend not running`: start FastAPI with the command above.
+- Capture finds nothing: wait for ASCAP results to finish loading, scroll near the result cards, then retry.
+- Parse fails on a specific result: the popup will name the captured result number that failed.
+- Results look stale after code changes: reload the unpacked extension in `chrome://extensions`.
+- Backend changes are not reflected: stop and restart `uvicorn`.
+
+## Pre-Commit Checklist
+
+Run from the repo root unless noted:
+
+```powershell
+cd backend
+.\venv\Scripts\python.exe -m pytest
+```
+
+```powershell
+cd ..
+node --check extension\popup.js
+```
+
+Then manually reload the extension and test one ASCAP capture/analyze flow.
 
 ## Guardrails
 

@@ -315,3 +315,45 @@ SONGS OF UNIVERSAL INC BMI 353271280
     ]
     assert data["candidate"]["publishers"][0]["name"] == "ERIC JOHN WILSON PUBLISHING"
     assert data["warnings"] == []
+
+
+def test_parse_candidate_filters_common_ascap_artifacts() -> None:
+    response = client.post(
+        "/api/parse-candidate",
+        json={
+            "source": "ASCAP Repertory",
+            "raw_text": """
+SANTERIA
+ISWC: T3176629151
+Work ID: 920301270
+Total Current ASCAP Share: 0%
+Total Current BMI Share: 100%
+Writers
+ASCAP controls: 0% BMI controls: 50%
+PRO IPI
+BURNS DAIMON LASHON BMI 123456789
+NOWELL BRADLEY JAMES BMI 183755932
+Performers
+SUBLIME
+Publishers
+No Information Found
+Additional Info
+Contact Info
+Print
+Collapse
+""",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["candidate"]["title"] == "SANTERIA"
+    assert data["candidate"]["public_work_id"] == "920301270"
+    assert data["candidate"]["iswc"] == "T3176629151"
+    assert [writer["name"] for writer in data["candidate"]["writers"]] == [
+        "BURNS DAIMON LASHON",
+        "NOWELL BRADLEY JAMES",
+    ]
+    assert data["candidate"]["publishers"] == []
+    assert "No publishers were parsed from the pasted text." in data["warnings"]

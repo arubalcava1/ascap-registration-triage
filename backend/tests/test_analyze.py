@@ -37,7 +37,8 @@ def test_analyze_ranks_candidates_and_detects_discrepancies() -> None:
     assert data["review_decision"]["severity"] == "warning"
     assert data["review_decision"]["confidence_score"] == data["top_result"]["confidence_score"]
     assert data["review_decision"]["rationale"]
-    assert "ASCAP Registration Triage Report" in data["report_text"]
+    assert "ASCAP Possible Match Review" in data["report_text"]
+    assert "ASCAP Work Searched" in data["report_text"]
     assert "Review Decision" in data["report_text"]
     assert "Needs Manual Review" in data["report_text"]
     assert "Top Candidate" in data["report_text"]

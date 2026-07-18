@@ -65,8 +65,40 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   border-radius: 8px;
   padding: 14px;
+}
+
+.backend-status {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.backend-status--connected {
+  border-color: rgba(94, 234, 212, 0.35);
+  background: rgba(94, 234, 212, 0.08);
+  color: #a8fff1;
+}
+
+.backend-status--error {
+  border-color: rgba(251, 138, 160, 0.34);
+  background: rgba(251, 138, 160, 0.08);
+  color: #ffc3ce;
+}
+
+.backend-status--checking {
+  border-color: rgba(247, 200, 115, 0.3);
+  background: rgba(247, 200, 115, 0.08);
+  color: var(--warning);
 }
 
 .eyebrow,
@@ -296,6 +328,7 @@ button:disabled {
 }
 
 .item {
+  position: relative;
   border: 1px solid rgba(148, 163, 184, 0.14);
   border-radius: 7px;
   background: var(--surface-2);
@@ -314,8 +347,26 @@ button:disabled {
 .item-name {
   min-width: 0;
   overflow: hidden;
+  padding-right: 8px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.remove-button {
+  margin-top: 8px;
+  border: 1px solid rgba(251, 138, 160, 0.24);
+  border-radius: 6px;
+  background: rgba(251, 138, 160, 0.08);
+  color: #ffc3ce;
+  cursor: pointer;
+  font-size: 11px;
+  min-height: 28px;
+  padding: 4px 9px;
+}
+
+.remove-button:hover {
+  border-color: rgba(251, 138, 160, 0.42);
+  background: rgba(251, 138, 160, 0.13);
 }
 
 .item-meta,
