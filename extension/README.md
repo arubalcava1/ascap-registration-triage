@@ -1,26 +1,10 @@
 # ASCAP Registration Triage Extension
 
-Chrome extension MVP for reviewing ASCAP public repertoire matches with a local FastAPI triage backend.
+Chrome extension for reviewing ASCAP public repertoire matches directly in Chrome.
 
-The extension helps you enter ASCAP work metadata, open ASCAP public repertoire searches, capture visible ASCAP result records, analyze likely matches, compare public songwriter reference evidence, and copy the ASCAP Work ID or review report.
+This is an independent workflow helper. It is not affiliated with, endorsed by, or operated by ASCAP.
 
-## Start Locally
-
-From the repo root:
-
-```powershell
-cd backend
-.\venv\Scripts\Activate.ps1
-python -m uvicorn app.main:app --reload
-```
-
-The backend must be available at:
-
-```text
-http://127.0.0.1:8000
-```
-
-The popup shows `Backend connected` when `/health` is reachable.
+The extension helps you enter ASCAP work metadata, open ASCAP public repertoire searches, capture visible ASCAP result records, analyze likely matches, compare advisory public songwriter reference evidence, and copy the ASCAP Work ID or review report. It does not require a local backend to run.
 
 ## Load The Extension
 
@@ -37,7 +21,7 @@ The popup shows `Backend connected` when `/health` is reachable.
 
 After changing extension files, go back to `chrome://extensions` and click **Reload** on the extension card.
 
-## Current MVP Flow
+## Current Workflow
 
 1. Open the extension popup.
 2. Enter the ASCAP work metadata under review.
@@ -52,47 +36,48 @@ After changing extension files, go back to `chrome://extensions` and click **Rel
 
 ## What The Extension Shows
 
-- Backend connection status
+- Local Chrome status
 - Work under review fields
-- ASCAP search plan based on the strongest field entered
 - ASCAP search opening and field-filling actions
 - Captured ASCAP candidate options
-- Ranked match results
+- Ranked match labels
 - Public writer-reference alignment or mismatch
 - Per-result ASCAP Work ID copy button
 - Optional copyable report
+- Theme choices
 
 ## Public Writer Reference
 
-The backend may use public music metadata APIs, such as MusicBrainz and Wikidata/Wikipedia, to find advisory songwriter reference data for the work under review.
+The extension can query public music metadata sources, such as MusicBrainz, Wikidata, and Wikipedia, to find advisory songwriter reference data for the work under review.
 
-This helps the ranking engine identify cases where two ASCAP results have the same title but different writer sets. A candidate that aligns with the public reference writer set can rank higher; a candidate missing expected writers or containing unrelated extra writers is flagged for review.
+This helps identify cases where two ASCAP results have the same title but different writer sets. A candidate that aligns with the public reference writer set can rank higher; a candidate missing expected writers or containing unrelated extra writers is flagged for review. If public metadata cannot produce a reliable writer set, the extension falls back to comparing captured ASCAP candidate writer sets against the user-entered writer context.
 
 This is advisory metadata only. It is not an official ASCAP determination.
 
 ## Troubleshooting
 
-- `Backend not running`: start FastAPI with the command above.
 - Capture finds nothing: wait for ASCAP results to finish loading, scroll near the result cards, then retry.
 - Capture warns you about the page: confirm you are viewing ASCAP public repertoire results and try again after the page finishes loading.
+- Public writer reference is not found: continue reviewing the ASCAP candidates; the extension will still rank from captured ASCAP metadata.
 - Results look stale after code changes: reload the unpacked extension in `chrome://extensions`.
-- Backend changes are not reflected: stop and restart `uvicorn`.
 
-## Pre-Commit Checklist
+## Pre-Publish Checklist
 
-Run from the repo root unless noted:
-
-```powershell
-cd backend
-.\venv\Scripts\python.exe -m pytest
-```
+Run from the repo root:
 
 ```powershell
-cd ..
 node --check extension\popup.js
 ```
 
 Then manually reload the extension and test one ASCAP capture/analyze flow.
+
+## Chrome Web Store Prep
+
+See:
+
+- `STORE_LISTING.md` for listing copy and permission rationale.
+- `PRIVACY.md` for a plain-language privacy statement.
+- `PACKAGING.md` for preflight checks and zip instructions.
 
 ## Guardrails
 
@@ -102,4 +87,4 @@ Then manually reload the extension and test one ASCAP capture/analyze flow.
 - Does not bypass CAPTCHA, login, or access restrictions.
 - Does not use hidden ASCAP endpoints.
 - Does not scrape arbitrary sites for songwriter credits.
-- Reuses the backend parser and analyzer instead of creating a separate extension-only scoring path.
+- Uses public metadata APIs only as advisory reference evidence.

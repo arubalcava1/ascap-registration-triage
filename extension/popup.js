@@ -1,4 +1,3 @@
-const API_BASE = "http://127.0.0.1:8000";
 const STORAGE_KEY = "ascapTriageExtensionState";
 
 const elements = {
@@ -8,6 +7,7 @@ const elements = {
   performerInput: document.querySelector("#performerInput"),
   writersInput: document.querySelector("#writersInput"),
   publishersInput: document.querySelector("#publishersInput"),
+  themeSelect: document.querySelector("#themeSelect"),
   openAscapButton: document.querySelector("#openAscapButton"),
   fillAscapButton: document.querySelector("#fillAscapButton"),
   captureButton: document.querySelector("#captureButton"),
@@ -39,6 +39,7 @@ let state = {
   candidates: [],
   capture_diagnostics: null,
   analysis: null,
+  theme: "ascap",
 };
 
 let reportOpen = false;
@@ -49,7 +50,7 @@ async function init() {
   await loadState();
   bindEvents();
   render();
-  checkBackendStatus();
+  setBackendStatus("connected", "Runs in Chrome");
 }
 
 function bindEvents() {
@@ -62,6 +63,7 @@ function bindEvents() {
   elements.copyReportButton.addEventListener("click", copyReport);
   elements.candidateList.addEventListener("click", handleCandidateListClick);
   elements.resultsList.addEventListener("click", handleResultsListClick);
+  elements.themeSelect.addEventListener("change", updateTheme);
 
   [
     elements.titleInput,
@@ -79,10 +81,33 @@ function bindEvents() {
 async function loadState() {
   const stored = await chrome.storage.local.get(STORAGE_KEY);
   state = { ...state, ...(stored[STORAGE_KEY] || {}) };
+  applyTheme(state.theme || "ascap");
 }
 
 async function saveState() {
   await chrome.storage.local.set({ [STORAGE_KEY]: state });
+}
+
+async function updateTheme() {
+  state.theme = elements.themeSelect.value || "ascap";
+  applyTheme(state.theme);
+  await saveState();
+  setStatus(`Theme changed to ${themeLabel(state.theme)}.`);
+}
+
+function applyTheme(theme) {
+  const validThemes = new Set(["ascap", "warner", "universal", "sony"]);
+  document.body.dataset.theme = validThemes.has(theme) ? theme : "ascap";
+}
+
+function themeLabel(theme) {
+  const labels = {
+    ascap: "Default",
+    warner: "Gold",
+    universal: "Black",
+    sony: "Red",
+  };
+  return labels[theme] || "Default";
 }
 
 function saveWorkFromInputs({ quiet = false } = {}) {
@@ -188,13 +213,7 @@ async function captureCurrentTab() {
     for (const capturedResult of result.results) {
       let parsed;
       try {
-        parsed = await apiFetch("/api/parse-candidate", {
-          method: "POST",
-          body: JSON.stringify({
-            source: "ASCAP Repertory",
-            raw_text: capturedResult.text,
-          }),
-        });
+        parsed = parseCandidateText("ASCAP Repertory", capturedResult.text);
       } catch (error) {
         throw new Error(`Could not parse captured ASCAP result ${capturedResult.index + 1}: ${error.message}`);
       }
@@ -256,13 +275,7 @@ async function analyzeCandidates() {
 async function runAnalysis() {
   setBusy(elements.analyzeButton, true, "Analyzing...");
   try {
-    const analysis = await apiFetch("/api/analyze", {
-      method: "POST",
-      body: JSON.stringify({
-        ascap_work: buildAscapWork(),
-        candidates: state.candidates,
-      }),
-    });
+    const analysis = await analyzeCandidatesLocally(buildAscapWork(), state.candidates);
     state.analysis = analysis;
     reportOpen = false;
     await saveState();
@@ -340,23 +353,6 @@ function toggleReport() {
   renderReportVisibility();
 }
 
-async function checkBackendStatus() {
-  setBackendStatus("checking", "Backend checking");
-  try {
-    const response = await fetch(`${API_BASE}/health`);
-    if (!response.ok) {
-      throw new Error(`status ${response.status}`);
-    }
-    const data = await response.json();
-    if (data?.status !== "ok") {
-      throw new Error("unexpected health response");
-    }
-    setBackendStatus("connected", "Backend connected");
-  } catch {
-    setBackendStatus("error", "Backend not running");
-  }
-}
-
 function setBackendStatus(status, label) {
   elements.backendStatus.textContent = label;
   elements.backendStatus.classList.toggle("backend-status--checking", status === "checking");
@@ -369,6 +365,7 @@ function buildAscapWork() {
     title: state.work.title.trim(),
     song_code: optional(state.work.song_code),
     iswc: optional(state.work.iswc),
+    performer: optional(state.work.performer),
     alternate_titles: [],
     writers: parseParties(state.work.writers),
     publishers: parseParties(state.work.publishers),
@@ -397,6 +394,8 @@ function render() {
   elements.performerInput.value = state.work.performer || "";
   elements.writersInput.value = state.work.writers || "";
   elements.publishersInput.value = state.work.publishers || "";
+  elements.themeSelect.value = state.theme || "ascap";
+  applyTheme(state.theme || "ascap");
 
   elements.candidateCount.textContent =
     state.candidates.length === 0
@@ -457,7 +456,7 @@ function render() {
         <article class="item">
           <div class="item-title">
             <span class="item-name">Rank ${escapeHtml(result.rank)} - ${escapeHtml(result.candidate.title)}</span>
-            <span class="score">${escapeHtml(result.confidence_score.toFixed(0))}%<br>${escapeHtml(result.confidence_label)}</span>
+            <span class="score">${escapeHtml(result.confidence_label)}</span>
           </div>
           <div class="item-meta">${escapeHtml(result.candidate.source)}${formatIdentifierMetaClean(result)}</div>
           ${renderReferenceAlignment(result)}
@@ -487,6 +486,7 @@ function renderWriterReferenceCard(reference) {
   const status = reference.lookup_status || "unknown";
   const writers = reference.writers || [];
   const sources = reference.sources || [];
+  const sourceExplanation = referenceSourceExplanation(sources, status);
   elements.writerReferenceCard.classList.remove("hidden");
   elements.writerReferenceCard.innerHTML = `
     <div class="reference-heading">
@@ -498,6 +498,7 @@ function renderWriterReferenceCard(reference) {
         ? `<div class="reference-meta">Source${sources.length === 1 ? "" : "s"}: ${escapeHtml(sources.join(", "))}</div>`
         : `<div class="reference-meta">No source returned a usable writer set.</div>`
     }
+    ${sourceExplanation ? `<div class="muted-line">${escapeHtml(sourceExplanation)}</div>` : ""}
     ${
       writers.length
         ? `<div class="reference-writers">${writers.map((writer) => `<span>${escapeHtml(writer)}</span>`).join("")}</div>`
@@ -505,6 +506,21 @@ function renderWriterReferenceCard(reference) {
     }
     <div class="muted-line">Advisory public metadata only. Use it to support review, not replace ASCAP verification.</div>
   `;
+}
+
+function referenceSourceExplanation(sources = [], status = "") {
+  if (status !== "found") {
+    return "";
+  }
+
+  const normalizedSources = sources.map((source) => String(source).toLowerCase());
+  if (normalizedSources.some((source) => source.includes("captured ascap"))) {
+    return "External metadata did not return a usable writer set, so this used captured ASCAP public repertoire writers.";
+  }
+  if (sources.length) {
+    return "Used documented public metadata sources before comparing against captured ASCAP candidates.";
+  }
+  return "";
 }
 
 function formatReferenceStatus(status) {
@@ -629,9 +645,9 @@ function renderRankReason(result) {
   const issues = buildRankIssueSummary(result);
   return `
     <div class="review-block rank-reason">
-      <div class="review-title">Why this rank</div>
+      <div class="review-title">Ranking summary</div>
       <div class="match-line">${escapeHtml(summary)}</div>
-      ${issues ? `<div class="warning-line">${escapeHtml(issues)}</div>` : ""}
+      ${issues ? `<div class="warning-line">Review: ${escapeHtml(issues)}</div>` : ""}
     </div>
   `;
 }
@@ -645,16 +661,20 @@ function buildRankReason(result) {
   const searchedWriterCount = result.comparison_details.ascap_writers?.length || 0;
   const parts = [];
 
-  parts.push(titleMatched ? "Title matched" : "Title is similar but not exact");
+  parts.push(titleMatched ? "Title matched" : "Title is similar");
   if (searchedWriterCount) {
-    parts.push(`${matchedWriters.length} of ${searchedWriterCount} searched writer(s) matched`);
+    parts.push(`${matchedWriters.length}/${searchedWriterCount} searched writer${searchedWriterCount === 1 ? "" : "s"} matched`);
   } else {
-    parts.push("No searched writers were provided");
+    parts.push("No searched writer entered");
   }
   if (hasProvidedIdentifierEvidence(result)) {
-    parts.push("provided identifier matched");
+    parts.push("Provided identifier matched");
   }
-  return `${parts.join("; ")}.`;
+  const referenceSummary = buildReferenceSummary(result);
+  if (referenceSummary) {
+    parts.push(referenceSummary);
+  }
+  return parts.join(". ") + ".";
 }
 
 function buildRankIssueSummary(result) {
@@ -669,18 +689,31 @@ function buildRankIssueSummary(result) {
   );
   const issues = [];
   if (missingWriters.length) {
-    issues.push(`Missing searched writer(s): ${missingWriters.join(", ")}`);
+    issues.push(`${missingWriters.length} searched writer${missingWriters.length === 1 ? "" : "s"} missing`);
   }
   if (extraWriters.length) {
-    issues.push(`Extra candidate writer(s): ${extraWriters.join(", ")}`);
+    issues.push(`${extraWriters.length} extra candidate writer${extraWriters.length === 1 ? "" : "s"}`);
   }
   if (missingReferenceWriters.length) {
-    issues.push(`Missing public reference writer(s): ${missingReferenceWriters.join(", ")}`);
+    issues.push(`${missingReferenceWriters.length} public reference writer${missingReferenceWriters.length === 1 ? "" : "s"} missing`);
   }
   if (extraReferenceWriters.length) {
-    issues.push(`Not in public writer reference: ${extraReferenceWriters.join(", ")}`);
+    issues.push(`${extraReferenceWriters.length} writer${extraReferenceWriters.length === 1 ? "" : "s"} not in public reference`);
   }
-  return issues.join(". ");
+  return issues.join("; ");
+}
+
+function buildReferenceSummary(result) {
+  const hasReferenceEvidence = result.matching_evidence.some((item) => item.field === "external_writers");
+  const referenceIssues = result.discrepancies.filter((item) => item.field === "external_writers");
+
+  if (hasReferenceEvidence && !referenceIssues.length) {
+    return "Public writer reference aligned";
+  }
+  if (referenceIssues.length) {
+    return "Public writer reference needs review";
+  }
+  return "";
 }
 
 function hasProvidedIdentifierEvidence(result) {
@@ -771,12 +804,7 @@ function bestNameMatch(name, candidates, usedCandidates) {
 }
 
 function nameSimilarity(left, right) {
-  const leftTokens = nameTokens(left);
-  const rightTokens = nameTokens(right);
-  if (!leftTokens.size || !rightTokens.size) return 0;
-  if (isSubset(leftTokens, rightTokens) || isSubset(rightTokens, leftTokens)) return 1;
-  const shared = [...leftTokens].filter((token) => rightTokens.has(token)).length;
-  return shared / Math.max(leftTokens.size, rightTokens.size);
+  return localNameSimilarity(left, right);
 }
 
 function nameTokens(value) {
@@ -797,46 +825,867 @@ function extractNamesFromDiscrepancies(discrepancies) {
   return discrepancies.map((item) => item.description.match(/'([^']+)'/)?.[1] || item.description);
 }
 
-async function apiFetch(path, options) {
-  let response;
-  try {
-    response = await fetch(`${API_BASE}${path}`, {
-      headers: {
-        "Content-Type": "application/json",
-      },
-      ...options,
+const DISCLAIMER =
+  "This analysis is a metadata triage signal only. It is not an official ASCAP determination, legal ownership conclusion, royalty calculation, or automatic registration fix.";
+
+function parseCandidateText(source, rawText) {
+  const lines = String(rawText || "")
+    .split(/\r?\n/)
+    .map(cleanParseLine)
+    .filter(Boolean);
+  let title = "";
+  let publicWorkId = null;
+  let iswc = null;
+  let status = null;
+  const writers = [];
+  const publishers = [];
+  const parsedFields = new Set();
+  let currentSection = null;
+
+  for (const line of lines) {
+    if (isArtifactLine(line)) continue;
+
+    const idMatch = line.match(/\bWork ID\s*:?\s*(\d{5,10})\b/i);
+    if (idMatch) {
+      publicWorkId = publicWorkId || idMatch[1];
+      parsedFields.add("public_work_id");
+    }
+
+    const iswcMatch = line.match(/\b(T[-\s]?\d{3}[.\-\s]?\d{3}[.\-\s]?\d{3}[-\s]?\d)\b/i);
+    if (iswcMatch) {
+      iswc = iswc || iswcMatch[1];
+      parsedFields.add("iswc");
+    }
+
+    const explicitTitle = line.match(/^(?:work\s*)?title\s*[:\-]\s*(.+)$/i);
+    if (explicitTitle) {
+      title = explicitTitle[1].trim();
+      parsedFields.add("title");
+      currentSection = null;
+      continue;
+    }
+
+    const explicitId = line.match(/^(?:public\s*)?(?:work\s*)?(?:id|code|number)\s*[:\-]\s*(.+)$/i);
+    if (explicitId && !publicWorkId) {
+      publicWorkId = explicitId[1].trim();
+      parsedFields.add("public_work_id");
+      currentSection = null;
+      continue;
+    }
+
+    if (/^writers?\s*:?\s*$/i.test(line) || /^songwriters?\s*:?\s*$/i.test(line) || /^writers?\s*\/\s*composers?\s*:?\s*$/i.test(line)) {
+      currentSection = "writer";
+      continue;
+    }
+    if (/^publishers?\s*:?\s*$/i.test(line)) {
+      currentSection = "publisher";
+      continue;
+    }
+    if (/^(performers?|alternate\s+titles?)\s*:?\s*$/i.test(line)) {
+      currentSection = null;
+      continue;
+    }
+
+    const inlineWriters = inlineParties(line, "writer");
+    if (inlineWriters.length) {
+      writers.push(...inlineWriters);
+      parsedFields.add("writers");
+      currentSection = null;
+      continue;
+    }
+    const inlinePublishers = inlineParties(line, "publisher");
+    if (inlinePublishers.length) {
+      publishers.push(...inlinePublishers);
+      parsedFields.add("publishers");
+      currentSection = null;
+      continue;
+    }
+
+    if (currentSection === "writer" || currentSection === "publisher") {
+      const party = partyFromLine(line);
+      if (party) {
+        if (currentSection === "writer") {
+          writers.push(party);
+          parsedFields.add("writers");
+        } else {
+          publishers.push(party);
+          parsedFields.add("publishers");
+        }
+      }
+    }
+  }
+
+  if (!title) {
+    title = inferCandidateTitle(lines, source);
+    if (title) parsedFields.add("title");
+  }
+
+  const warnings = [];
+  if (!title) {
+    title = "Untitled candidate";
+    warnings.push("Could not confidently parse a title.");
+  }
+  if (!writers.length) warnings.push("No writers were parsed from the pasted text.");
+  if (!publishers.length) warnings.push("No publishers were parsed from the pasted text.");
+  if (!iswc) warnings.push("No ISWC was parsed from the pasted text.");
+
+  return {
+    candidate: {
+      source,
+      title,
+      public_work_id: publicWorkId,
+      iswc,
+      alternate_titles: [],
+      writers: uniqueParties(writers),
+      publishers: uniqueParties(publishers),
+      status,
+      source_url: null,
+      raw_notes: rawText,
+    },
+    parsed_fields: Array.from(parsedFields).sort(),
+    warnings,
+  };
+}
+
+function inlineParties(line, type) {
+  const match = line.match(new RegExp(`^${type}s?\\s*[:\\-]\\s*(.+)$`, "i"));
+  if (!match) return [];
+  return match[1]
+    .split(/[;,]/)
+    .map((part) => partyFromLine(part))
+    .filter(Boolean);
+}
+
+function partyFromLine(line) {
+  let name = cleanParseLine(line)
+    .replace(/^(?:writer|publisher|composer|author)\s*[:\-]\s*/i, "")
+    .replace(/\s+\|\s*\d+(?:\.\d+)?\s*%?\s*$/i, "")
+    .replace(/\(?\b\d+(?:\.\d+)?\s*%\)?/g, "")
+    .replace(/\b(?:BMI|ASCAP|SESAC|GMR)\b/g, "")
+    .replace(/\bshare\b/gi, "")
+    .replace(/\b0\d{7,10}\b/g, "")
+    .replace(/\s+[-|]\s*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!name || isArtifactLine(name) || /^[:|.\-\s\d%]+$/.test(name)) return null;
+  return { name, ipi_cae: null, share: null };
+}
+
+function inferCandidateTitle(lines, source) {
+  if (/ascap/i.test(source)) {
+    for (let index = 0; index < lines.length; index += 1) {
+      if (/\bISWC\b/i.test(lines[index]) || /\bWork ID\b/i.test(lines[index])) {
+        for (let previous = index - 1; previous >= 0; previous -= 1) {
+          const line = lines[previous];
+          if (!isArtifactLine(line) && !looksLikePartyRow(line) && !looksLikeShareLine(line)) return line;
+        }
+      }
+    }
+  }
+  return lines.find((line) => !isArtifactLine(line) && !/\b(?:ISWC|Work ID)\b/i.test(line)) || "";
+}
+
+function cleanParseLine(line) {
+  return String(line || "").replace(/\s+/g, " ").trim();
+}
+
+function isArtifactLine(line) {
+  const normalized = cleanParseLine(line).toLowerCase();
+  if (!normalized) return true;
+  const artifacts = new Set([
+    "% controlled",
+    "additional info",
+    "additional non-bmi publishers",
+    "affiliation",
+    "collapse",
+    "collapse all",
+    "contact info",
+    "controlled",
+    "expand",
+    "help",
+    "include alternate titles",
+    "logo",
+    "name affiliation ipi #",
+    "no data available",
+    "no information found",
+    "performer",
+    "print",
+    "print all",
+    "pro ipi",
+    "total %",
+    "title",
+    "writer / composer",
+  ]);
+  return (
+    artifacts.has(normalized) ||
+    normalized.startsWith("title bmi work id") ||
+    normalized.startsWith("iswc work id") ||
+    normalized.startsWith("songview") ||
+    normalized.startsWith("total current ascap share") ||
+    normalized.startsWith("total current bmi share") ||
+    (normalized.includes("controls:") && (normalized.includes("ascap") || normalized.includes("bmi")))
+  );
+}
+
+function looksLikePartyRow(line) {
+  return /^.+?\s+(BMI|ASCAP|SESAC|GMR)\s+\d{7,10}$/i.test(line);
+}
+
+function looksLikeShareLine(line) {
+  const value = line.toLowerCase();
+  return value.includes("share") || value.includes("controls:") || value.includes("% controlled");
+}
+
+function uniqueParties(parties) {
+  const seen = new Set();
+  return parties.filter((party) => {
+    const key = normalizeName(party.name);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function analyzeCandidatesLocally(ascapWork, candidates) {
+  const writerReference = await maybeLookupWriterReference(ascapWork, candidates);
+  const results = candidates
+    .map((candidate) => {
+      const { score, evidence } = scoreCandidate(ascapWork, candidate, writerReference);
+      const discrepancies = detectDiscrepancies(ascapWork, candidate, writerReference);
+      return {
+        candidate,
+        rank: 0,
+        confidence_score: score,
+        confidence_label: confidenceLabel(score),
+        comparison_details: buildComparisonDetails(ascapWork, candidate),
+        matching_evidence: evidence,
+        discrepancies,
+      };
+    })
+    .sort((left, right) => right.confidence_score - left.confidence_score)
+    .map((result, index) => ({ ...result, rank: index + 1 }));
+  const topResult = results[0] || null;
+  const reviewDecision = reviewDecisionFor(topResult);
+  const externalWriterReference = writerReference
+    ? {
+        lookup_status: writerReference.lookup_status,
+        sources: writerReference.sources,
+        writers: writerReference.writers,
+        notes: writerReference.notes || null,
+      }
+    : null;
+  const reportText = generateReportText(ascapWork, results, reviewDecision, externalWriterReference);
+
+  return {
+    results,
+    top_result: topResult,
+    review_decision: reviewDecision,
+    external_writer_reference: externalWriterReference,
+    summary: topResult
+      ? `Analyzed ${results.length} candidate record(s). Top candidate is ranked as ${topResult.confidence_label}.`
+      : "No candidate records were analyzed.",
+    report_text: reportText,
+    disclaimer: DISCLAIMER,
+  };
+}
+
+function scoreCandidate(ascapWork, candidate, writerReference) {
+  const evidence = [];
+  const weighted = [];
+  addWeighted(weighted, evidence, "title", scoreTitle(ascapWork, candidate), 20, "Title similarity supports this candidate");
+  if (normalizeIdentifier(ascapWork.song_code)) {
+    addWeighted(weighted, evidence, "song_code", scoreSongCode(ascapWork, candidate), 20, "ASCAP song code comparison supports this candidate");
+  }
+  if (normalizeIswc(ascapWork.iswc)) {
+    addWeighted(weighted, evidence, "iswc", scoreIswc(ascapWork, candidate), 20, "ISWC comparison supports this candidate");
+  }
+  addWeighted(weighted, evidence, "writers", scorePartyNameOverlap(ascapWork.writers, candidate.writers), 35, "Writer name similarity supports this candidate");
+  if (writerReference?.writers?.length) {
+    addWeighted(weighted, evidence, "external_writers", scoreReferenceWriterMatch(candidate, writerReference), 45, "Public writer reference supports this candidate");
+  }
+  if (ascapWork.publishers?.length) {
+    addWeighted(weighted, evidence, "publishers", scorePartyNameOverlap(ascapWork.publishers, candidate.publishers, true), 10, "Publisher similarity supports this candidate");
+  }
+  const weight = weighted.reduce((sum, item) => sum + item.weight, 0);
+  const base = weight ? weighted.reduce((sum, item) => sum + item.score * item.weight, 0) / weight * 100 : 0;
+  return {
+    score: roundScore(Math.max(0, base - writerSetPenalty(ascapWork, candidate, writerReference))),
+    evidence,
+  };
+}
+
+function addWeighted(weighted, evidence, field, score, weight, description) {
+  weighted.push({ score, weight });
+  const impact = roundScore(score * weight);
+  if (impact > 0) evidence.push({ field, description, score_impact: impact });
+}
+
+function scoreTitle(ascapWork, candidate) {
+  const ascapTitles = [ascapWork.title, ...(ascapWork.alternate_titles || [])].map(normalizeTitle).filter(Boolean);
+  const candidateTitles = [candidate.title, ...(candidate.alternate_titles || [])].map(normalizeTitle).filter(Boolean);
+  if (!ascapTitles.length || !candidateTitles.length) return 0;
+  return Math.max(...ascapTitles.flatMap((title) => candidateTitles.map((candidateTitle) => tokenSortRatio(title, candidateTitle))));
+}
+
+function scoreIswc(ascapWork, candidate) {
+  const ascapIswc = normalizeIswc(ascapWork.iswc);
+  const candidateIswc = normalizeIswc(candidate.iswc);
+  return ascapIswc && candidateIswc && ascapIswc === candidateIswc ? 1 : 0;
+}
+
+function scoreSongCode(ascapWork, candidate) {
+  const ascapCode = normalizeIdentifier(ascapWork.song_code);
+  const candidateId = normalizeIdentifier(candidate.public_work_id);
+  return ascapCode && candidateId && ascapCode === candidateId ? 1 : 0;
+}
+
+function scorePartyNameOverlap(ascapParties, candidateParties, publisher = false) {
+  const ascapNames = normalizedPartyNames(ascapParties, publisher);
+  const candidateNames = normalizedPartyNames(candidateParties, publisher);
+  if (!ascapNames.length || !candidateNames.length) return 0;
+  const recall = average(ascapNames.map((name) => bestLocalNameSimilarity(name, candidateNames)));
+  const precision = average(candidateNames.map((name) => bestLocalNameSimilarity(name, ascapNames)));
+  const recallWeight = !publisher && ascapNames.length === 1 ? 0.95 : publisher ? 0.55 : 0.65;
+  return recall * recallWeight + precision * (1 - recallWeight);
+}
+
+function scoreReferenceWriterMatch(candidate, writerReference) {
+  const { matched, missing, extra } = candidateReferenceMatches(candidate, writerReference);
+  const expectedCount = writerReference.writers.length || 1;
+  const candidateCount = normalizedPartyNames(candidate.writers).length || 1;
+  const recall = matched.length / expectedCount;
+  const precision = Math.max(0, 1 - extra.length / candidateCount);
+  const missingPenalty = missing.length / expectedCount;
+  return Math.max(0, Math.min(1, recall * 0.75 + precision * 0.25 - missingPenalty * 0.35));
+}
+
+function writerSetPenalty(ascapWork, candidate, writerReference) {
+  if (writerReference?.writers?.length) {
+    const { missing, extra } = candidateReferenceMatches(candidate, writerReference);
+    return (missing.length / Math.max(writerReference.writers.length, 1)) * 55 + (extra.length / Math.max(candidate.writers.length, 1)) * 50;
+  }
+  const ascapNames = normalizedPartyNames(ascapWork.writers);
+  const candidateNames = normalizedPartyNames(candidate.writers);
+  if (!ascapNames.length || !candidateNames.length) return 0;
+  const missingRatio = lowMatchRatio(ascapNames, candidateNames);
+  if (ascapNames.length === 1) return missingRatio * 45;
+  return missingRatio * 45 + lowMatchRatio(candidateNames, ascapNames) * 70;
+}
+
+function detectDiscrepancies(ascapWork, candidate, writerReference) {
+  const discrepancies = [];
+  if (normalizeTitle(ascapWork.title) && normalizeTitle(candidate.title) && normalizeTitle(ascapWork.title) !== normalizeTitle(candidate.title)) {
+    discrepancies.push({
+      type: tokenSortRatio(normalizeTitle(ascapWork.title), normalizeTitle(candidate.title)) >= 0.88 ? "title_formatting_difference" : "title_difference",
+      severity: "medium",
+      field: "title",
+      description: "Candidate title differs from the ASCAP portal title.",
+      suggested_review_note: "Confirm whether the candidate is an alternate title or a different work.",
     });
-  } catch (error) {
-    setBackendStatus("error", "Backend not running");
-    throw new Error(
-      `Backend request failed. Start FastAPI at ${API_BASE}, then retry. Original error: ${error.message}`,
-    );
   }
-
-  if (!response.ok) {
-    const message = await readApiError(response);
-    throw new Error(message || `Request failed with status ${response.status}`);
+  if (normalizeIdentifier(ascapWork.song_code) && normalizeIdentifier(candidate.public_work_id) && normalizeIdentifier(ascapWork.song_code) !== normalizeIdentifier(candidate.public_work_id)) {
+    discrepancies.push({
+      type: "song_code_mismatch",
+      severity: "high",
+      field: "song_code",
+      description: "ASCAP song code and candidate public work ID are different.",
+      suggested_review_note: "Verify the ASCAP song code against the public work ID before treating this candidate as a match.",
+    });
   }
+  if (normalizeIswc(ascapWork.iswc) && normalizeIswc(candidate.iswc) && normalizeIswc(ascapWork.iswc) !== normalizeIswc(candidate.iswc)) {
+    discrepancies.push({
+      type: "iswc_mismatch",
+      severity: "high",
+      field: "iswc",
+      description: "ASCAP portal metadata and candidate metadata show different ISWC values.",
+      suggested_review_note: "Verify the ISWC in both records before treating this candidate as a match.",
+    });
+  }
+  if (writerReference?.writers?.length) {
+    const { missing, extra } = candidateReferenceMatches(candidate, writerReference);
+    missing.forEach((writer) => discrepancies.push({
+      type: "missing_reference_writer",
+      severity: "high",
+      field: "external_writers",
+      description: `Candidate is missing public reference writer '${writer}'.`,
+      suggested_review_note: "Review this candidate against the public writer reference before treating it as the likely match.",
+    }));
+    extra.forEach((writer) => discrepancies.push({
+      type: "extra_reference_writer",
+      severity: "high",
+      field: "external_writers",
+      description: `Candidate includes writer '${writer}' not found in the public writer reference.`,
+      suggested_review_note: "Review whether this public candidate is a different work or alternate registration.",
+    }));
+  } else {
+    discrepancies.push(...partyDiscrepancies(ascapWork.writers, candidate.writers, "writer"));
+  }
+  if (ascapWork.publishers?.length) {
+    discrepancies.push(...partyDiscrepancies(ascapWork.publishers, candidate.publishers, "publisher"));
+  }
+  return discrepancies;
+}
 
+function partyDiscrepancies(ascapParties, candidateParties, type) {
+  const publisher = type === "publisher";
+  const ascapNames = normalizedPartyNames(ascapParties, publisher);
+  const candidateNames = normalizedPartyNames(candidateParties, publisher);
+  const output = [];
+  if (!ascapNames.length) return output;
+  ascapNames.forEach((name, index) => {
+    if (bestLocalNameSimilarity(name, candidateNames) < 0.88) {
+      output.push({
+        type: `missing_${type}`,
+        severity: type === "writer" ? "high" : "medium",
+        field: `${type}s`,
+        description: `ASCAP metadata includes ${type} '${ascapParties[index].name}' not clearly found in the candidate.`,
+        suggested_review_note: `Review whether this ${type} is missing from the candidate record or listed under a variation.`,
+      });
+    }
+  });
+  if (type === "writer" && ascapNames.length === 1) return output;
+  candidateNames.forEach((name, index) => {
+    if (bestLocalNameSimilarity(name, ascapNames) < 0.88) {
+      output.push({
+        type: `extra_${type}`,
+        severity: type === "writer" ? "high" : "medium",
+        field: `${type}s`,
+        description: `Candidate includes additional ${type} '${candidateParties[index].name}' not clearly found in the ASCAP metadata.`,
+        suggested_review_note: `Review whether this additional ${type} should be associated with the work.`,
+      });
+    }
+  });
+  return output;
+}
+
+async function maybeLookupWriterReference(ascapWork, candidates) {
+  if (!shouldLookupWriterReference(ascapWork, candidates)) return null;
+  const external = await lookupExternalWriterReference(ascapWork, candidates);
+  if (external && referenceMatchesEnteredWriterContext(ascapWork, external.writers)) return external;
+  return capturedCandidateWriterReference(ascapWork, candidates) || external;
+}
+
+function shouldLookupWriterReference(ascapWork, candidates) {
+  return Boolean((ascapWork.title || "").trim() && candidates?.length);
+}
+
+async function lookupExternalWriterReference(ascapWork, candidates) {
+  const titleVariants = uniqueStrings([ascapWork.title, ...candidates.map((candidate) => candidate.title)]);
+  const sourceResults = [];
+  for (const title of titleVariants.slice(0, 4)) {
+    const wiki = await lookupWikidataWriters(title, ascapWork);
+    if (wiki.writers.length) sourceResults.push(wiki);
+    const wikipedia = await lookupWikipediaWriters(title, ascapWork);
+    if (wikipedia.writers.length) sourceResults.push(wikipedia);
+    const musicbrainz = await lookupMusicBrainzWriters(title, ascapWork);
+    if (musicbrainz.writers.length) sourceResults.push(musicbrainz);
+  }
+  if (!sourceResults.length) {
+    return { lookup_status: "not_found", sources: [], writers: [], notes: "No source returned a usable writer set." };
+  }
+  const best = selectReferenceResult(sourceResults, ascapWork, candidates);
+  return best.writers.length
+    ? { lookup_status: "found", sources: best.sources, writers: best.writers, notes: null }
+    : { lookup_status: "not_found", sources: [], writers: [], notes: "No public writer names were found." };
+}
+
+async function lookupMusicBrainzWriters(title, ascapWork) {
+  const artistTerm = ascapWork.performer ? ` AND artist:${quoteSearchTerm(ascapWork.performer)}` : "";
+  const writerTerms = normalizedPartyNames(ascapWork.writers).map((name) => ` AND credit:${quoteSearchTerm(name)}`).join("");
+  const queries = [
+    `recording:${quoteSearchTerm(title)}${artistTerm}`,
+    `recording:${quoteSearchTerm(title)}${writerTerms}`,
+    `work:${quoteSearchTerm(title)}`,
+  ];
+  for (const query of queries) {
+    try {
+      const url = `https://musicbrainz.org/ws/2/recording?query=${encodeURIComponent(query)}&fmt=json&limit=5`;
+      const data = await fetchJson(url);
+      const recordings = data?.recordings || [];
+      for (const recording of recordings) {
+        if (!looksLikeTitleMatch(title, recording.title || "")) continue;
+        const writers = await musicBrainzRecordingWriters(recording.id);
+        if (writers.length) return { source: "MusicBrainz", writers: uniqueNames(writers) };
+      }
+    } catch {
+      // Public reference lookup is advisory; continue to the next source.
+    }
+  }
+  return { source: "MusicBrainz", writers: [] };
+}
+
+async function musicBrainzRecordingWriters(recordingId) {
+  try {
+    const data = await fetchJson(`https://musicbrainz.org/ws/2/recording/${encodeURIComponent(recordingId)}?inc=work-rels&fmt=json`);
+    const workIds = (data?.relations || [])
+      .filter((relation) => relation.type === "performance" && relation.work?.id)
+      .map((relation) => relation.work.id);
+    const writers = [];
+    for (const workId of workIds.slice(0, 3)) {
+      const work = await fetchJson(`https://musicbrainz.org/ws/2/work/${encodeURIComponent(workId)}?inc=artist-rels&fmt=json`);
+      (work?.relations || []).forEach((relation) => {
+        if (["writer", "composer", "lyricist"].includes(relation.type) && relation.artist?.name) writers.push(relation.artist.name);
+      });
+    }
+    return uniqueNames(writers);
+  } catch {
+    return [];
+  }
+}
+
+async function lookupWikidataWriters(title, ascapWork) {
+  const writerHints = normalizedPartyNames(ascapWork.writers).map((name) => `"${name}"`).join(" ");
+  const search = `${title} song ${ascapWork.performer || writerHints}`.trim();
+  try {
+    const searchData = await fetchJson(`https://www.wikidata.org/w/rest.php/wikibase/v0/search/entities?search=${encodeURIComponent(search)}&language=en&limit=5`);
+    for (const item of searchData?.search || []) {
+      const entity = await fetchJson(`https://www.wikidata.org/wiki/Special:EntityData/${encodeURIComponent(item.id)}.json`);
+      const claims = entity?.entities?.[item.id]?.claims || {};
+      const ids = [...(claims.P86 || []), ...(claims.P676 || []), ...(claims.P162 || [])]
+        .map((claim) => claim.mainsnak?.datavalue?.value?.id)
+        .filter(Boolean);
+      const names = [];
+      for (const id of ids.slice(0, 12)) {
+        const nameData = await fetchJson(`https://www.wikidata.org/wiki/Special:EntityData/${encodeURIComponent(id)}.json`);
+        const label = nameData?.entities?.[id]?.labels?.en?.value;
+        if (label) names.push(label);
+      }
+      if (names.length) return { source: "Wikidata", writers: uniqueNames(names) };
+    }
+  } catch {
+    // Advisory lookup only.
+  }
+  return { source: "Wikidata", writers: [] };
+}
+
+async function lookupWikipediaWriters(title, ascapWork) {
+  const terms = uniqueStrings([
+    `${title} song ${ascapWork.performer || ""}`,
+    `${title} song ${normalizedPartyNames(ascapWork.writers)[0] || ""}`,
+    `${title} song`,
+  ]);
+  for (const term of terms) {
+    try {
+      const search = await fetchJson(`https://en.wikipedia.org/w/rest.php/v1/search/page?q=${encodeURIComponent(term)}&limit=5`);
+      for (const page of search?.pages || []) {
+        if (!looksLikeTitleMatch(title, page.title || "")) continue;
+        const wikitext = await fetchJson(`https://en.wikipedia.org/w/api.php?action=query&prop=revisions&rvprop=content&rvslots=main&format=json&origin=*&titles=${encodeURIComponent(page.title)}`);
+        const pages = Object.values(wikitext?.query?.pages || {});
+        const content = pages[0]?.revisions?.[0]?.slots?.main?.["*"] || "";
+        const writers = splitWikipediaNames(infoboxField(content, "writer") || infoboxField(content, "composer"));
+        if (writers.length) return { source: "Wikipedia", writers: uniqueNames(writers) };
+      }
+    } catch {
+      // Advisory lookup only.
+    }
+  }
+  return { source: "Wikipedia", writers: [] };
+}
+
+function selectReferenceResult(sourceResults, ascapWork, candidates) {
+  const candidateWriters = candidates.flatMap((candidate) => displayWriterNames(candidate));
+  const enteredWriters = normalizedPartyNames(ascapWork.writers);
+  const scored = sourceResults.map((result) => {
+    const writers = uniqueNames(result.writers);
+    const enteredScore = enteredWriters.length ? average(enteredWriters.map((writer) => bestLocalNameSimilarity(writer, writers.map(normalizeName)))) : 0.5;
+    const candidateScore = candidateWriters.length ? average(writers.map((writer) => bestLocalNameSimilarity(normalizeName(writer), candidateWriters.map(normalizeName)))) : 0;
+    return { result, writers, score: enteredScore * 0.55 + candidateScore * 0.45 };
+  });
+  const best = scored.sort((left, right) => right.score - left.score)[0];
+  return best && best.score >= 0.45
+    ? { sources: [best.result.source], writers: best.writers }
+    : { sources: [], writers: [] };
+}
+
+function capturedCandidateWriterReference(ascapWork, candidates) {
+  const enteredWriters = normalizedPartyNames(ascapWork.writers);
+  const sameTitle = candidates.filter((candidate) => normalizeTitle(candidate.title) === normalizeTitle(ascapWork.title));
+  const groups = sameTitle
+    .map((candidate) => displayWriterNames(candidate))
+    .filter((writers) => writers.length)
+    .filter((writers) => !enteredWriters.length || enteredWriters.some((entered) => bestLocalNameSimilarity(entered, writers.map(normalizeName)) >= 0.88));
+  if (!groups.length) return null;
+  const best = groups.sort((left, right) => right.length - left.length)[0];
+  return {
+    lookup_status: "found",
+    sources: ["Captured ASCAP public repertoire"],
+    writers: uniqueNames(best),
+    notes: "External metadata did not return a usable writer set; captured ASCAP writer context was used.",
+  };
+}
+
+function referenceMatchesEnteredWriterContext(ascapWork, referenceWriters) {
+  const enteredWriters = normalizedPartyNames(ascapWork.writers);
+  if (!enteredWriters.length || !referenceWriters.length) return true;
+  return enteredWriters.some((writer) => bestLocalNameSimilarity(writer, referenceWriters.map(normalizeName)) >= 0.88);
+}
+
+function candidateReferenceMatches(candidate, writerReference) {
+  const candidateWriters = displayWriterNames(candidate);
+  const normalizedCandidates = candidateWriters.map(normalizeName);
+  const matched = [];
+  const missing = [];
+  const extra = [];
+  const matchedCandidateIndexes = new Set();
+  writerReference.writers.forEach((writer) => {
+    const match = bestNameMatch(normalizeName(writer), normalizedCandidates, matchedCandidateIndexes);
+    if (match.score >= 0.88) {
+      matched.push(writer);
+      matchedCandidateIndexes.add(match.index);
+    } else {
+      missing.push(writer);
+    }
+  });
+  candidateWriters.forEach((writer, index) => {
+    if (matchedCandidateIndexes.has(index)) return;
+    if (bestLocalNameSimilarity(normalizeName(writer), writerReference.writers.map(normalizeName)) < 0.88) extra.push(writer);
+  });
+  return { matched, missing, extra };
+}
+
+function buildComparisonDetails(ascapWork, candidate) {
+  return {
+    ascap_title: normalizeTitle(ascapWork.title),
+    candidate_title: normalizeTitle(candidate.title),
+    ascap_iswc: normalizeIswc(ascapWork.iswc) || null,
+    candidate_iswc: normalizeIswc(candidate.iswc) || null,
+    ascap_writers: normalizedPartyNames(ascapWork.writers),
+    candidate_writers: normalizedPartyNames(candidate.writers),
+    ascap_publishers: normalizedPartyNames(ascapWork.publishers, true),
+    candidate_publishers: normalizedPartyNames(candidate.publishers, true),
+  };
+}
+
+function reviewDecisionFor(topResult) {
+  if (!topResult) return { label: "Needs Manual Review", severity: "warning", confidence_score: 0, rationale: ["No candidate records were available for analysis."] };
+  const highCount = topResult.discrepancies.filter((item) => item.severity === "high").length;
+  const hasIswcConflict = topResult.discrepancies.some((item) => item.type === "iswc_mismatch");
+  const rationale = [
+    topResult.comparison_details.ascap_title === topResult.comparison_details.candidate_title
+      ? "Title normalizes to the same work title."
+      : "Title needs review.",
+  ];
+  if (topResult.matching_evidence.length) rationale.push(`Positive evidence was found for: ${topResult.matching_evidence.slice(0, 4).map((item) => item.field).join(", ")}.`);
+  if (highCount) rationale.push(`${highCount} high-severity discrepancy item(s) require review.`);
+  if (topResult.confidence_score >= 85 && highCount === 0 && !hasIswcConflict) {
+    return { label: "Likely Same Work", severity: "success", confidence_score: topResult.confidence_score, rationale };
+  }
+  if (topResult.confidence_score < 50 || hasIswcConflict || highCount >= 2) {
+    return { label: "Likely Different Work", severity: "danger", confidence_score: topResult.confidence_score, rationale };
+  }
+  return { label: "Needs Manual Review", severity: "warning", confidence_score: topResult.confidence_score, rationale };
+}
+
+function generateReportText(ascapWork, results, reviewDecision, reference) {
+  const top = results[0];
+  const lines = [
+    "ASCAP Possible Match Review",
+    "===========================",
+    "",
+    "ASCAP Work Searched",
+    "-------------------",
+    `Title: ${ascapWork.title || "Not provided"}`,
+    `ASCAP Song Code: ${ascapWork.song_code || "Not provided"}`,
+    `ISWC: ${ascapWork.iswc || "Not shown"}`,
+    `Writers: ${partyNames(ascapWork.writers)}`,
+    `Publishers: ${partyNames(ascapWork.publishers)}`,
+    "",
+    "Review Decision",
+    "---------------",
+    `Decision: ${reviewDecision.label}`,
+    `Decision Score: ${reviewDecision.confidence_score}%`,
+    "Why:",
+    ...prefixLines(reviewDecision.rationale),
+  ];
+  if (reference) {
+    lines.push("", "External Writer Reference", "-------------------------", `Status: ${reference.lookup_status}`, `Sources: ${reference.sources?.join(", ") || "None found"}`, `Writers: ${reference.writers?.join(", ") || "None found"}`, "Note: Public reference evidence is advisory and should be reviewed against ASCAP.");
+  }
+  if (top) {
+    lines.push("", "Top Candidate", "-------------", `Rank: ${top.rank}`, `Title: ${top.candidate.title}`, `ASCAP Work ID: ${top.candidate.public_work_id || "Not provided"}`, `Match Score: ${top.confidence_score}%`, `Confidence Label: ${top.confidence_label}`, "", "Matching Evidence", "-----------------", ...prefixLines(top.matching_evidence.map((item) => item.description)), "", "Discrepancies", "-------------", ...prefixLines(top.discrepancies.map((item) => item.description)));
+  }
+  lines.push("", "Disclaimer", "----------", DISCLAIMER);
+  return lines.join("\n").trim();
+}
+
+function confidenceLabel(score) {
+  if (score >= 85) return "Strong Match";
+  if (score >= 65) return "Possible Match";
+  if (score >= 40) return "Weak Match";
+  return "Not a Match";
+}
+
+function normalizeTextBasic(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeCompact(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function normalizeTitle(value) {
+  const parts = normalizeTextBasic(value).split(" ").filter(Boolean);
+  if (parts.length > 1 && ["the", "a", "an"].includes(parts[parts.length - 1])) return [parts[parts.length - 1], ...parts.slice(0, -1)].join(" ");
+  return parts.join(" ");
+}
+
+function normalizeName(value) {
+  return normalizeTextBasic(value);
+}
+
+function normalizePublisherName(value) {
+  const suffixes = new Set(["co", "company", "corp", "corporation", "inc", "llc", "ltd", "limited", "music", "publishing", "pub", "pubs"]);
+  return normalizeTextBasic(value).split(" ").filter((word) => !suffixes.has(word)).join(" ");
+}
+
+function normalizeIdentifier(value) {
+  return String(value || "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+}
+
+function normalizeIswc(value) {
+  return normalizeIdentifier(value);
+}
+
+function normalizedPartyNames(parties = [], publisher = false) {
+  const normalizer = publisher ? normalizePublisherName : normalizeName;
+  return parties.map((party) => normalizer(party.name)).filter(Boolean);
+}
+
+function bestLocalNameSimilarity(name, candidates) {
+  return candidates.length ? Math.max(...candidates.map((candidate) => localNameSimilarity(name, candidate))) : 0;
+}
+
+function localNameSimilarity(left, right) {
+  const compactLeft = normalizeCompact(left);
+  const compactRight = normalizeCompact(right);
+  if (!compactLeft || !compactRight) return 0;
+  if (compactLeft === compactRight) return 1;
+  if (Math.min(compactLeft.length, compactRight.length) >= 4 && (compactLeft.includes(compactRight) || compactRight.includes(compactLeft))) return 1;
+  const leftTokens = tokenSet(normalizeName(left));
+  const rightTokens = tokenSet(normalizeName(right));
+  if (!leftTokens.size || !rightTokens.size) return 0;
+  if (isSubset(leftTokens, rightTokens) || isSubset(rightTokens, leftTokens)) return 1;
+  const sharedDistinctive = [...leftTokens].filter((token) => token.length >= 3 && rightTokens.has(token)).length;
+  if (sharedDistinctive >= 2) return 1;
+  return tokenSortRatio(normalizeName(left), normalizeName(right));
+}
+
+function tokenSortRatio(left, right) {
+  const leftTokens = normalizeTextBasic(left).split(" ").filter(Boolean).sort();
+  const rightTokens = normalizeTextBasic(right).split(" ").filter(Boolean).sort();
+  if (!leftTokens.length || !rightTokens.length) return 0;
+  if (leftTokens.join(" ") === rightTokens.join(" ")) return 1;
+  const shared = leftTokens.filter((token) => rightTokens.includes(token)).length;
+  const tokenScore = shared / Math.max(leftTokens.length, rightTokens.length);
+  const compactLeft = leftTokens.join("");
+  const compactRight = rightTokens.join("");
+  const charScore = compactSimilarity(compactLeft, compactRight);
+  return Math.max(tokenScore, charScore);
+}
+
+function compactSimilarity(left, right) {
+  if (!left || !right) return 0;
+  if (left === right) return 1;
+  const maxLength = Math.max(left.length, right.length);
+  const distance = levenshteinDistance(left, right);
+  return Math.max(0, 1 - distance / maxLength);
+}
+
+function levenshteinDistance(left, right) {
+  const costs = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= left.length; i += 1) {
+    let previous = costs[0];
+    costs[0] = i;
+    for (let j = 1; j <= right.length; j += 1) {
+      const current = costs[j];
+      costs[j] = left[i - 1] === right[j - 1] ? previous : Math.min(previous, costs[j], costs[j - 1]) + 1;
+      previous = current;
+    }
+  }
+  return costs[right.length];
+}
+
+function tokenSet(value) {
+  return new Set(String(value || "").split(/\s+/).filter((token) => token.length > 1));
+}
+
+function lowMatchRatio(sourceNames, targetNames) {
+  return sourceNames.filter((name) => bestLocalNameSimilarity(name, targetNames) < 0.88).length / sourceNames.length;
+}
+
+function displayWriterNames(candidate) {
+  return (candidate.writers || []).map((party) => party.name).filter(Boolean);
+}
+
+function average(values) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+}
+
+function roundScore(value) {
+  return Math.round(value * 100) / 100;
+}
+
+function uniqueStrings(values) {
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function uniqueNames(names) {
+  const output = [];
+  names.map((name) => String(name || "").replace(/\s+/g, " ").trim()).filter(Boolean).forEach((name) => {
+    if (!output.some((existing) => localNameSimilarity(existing, name) >= 0.88)) output.push(name);
+  });
+  return output;
+}
+
+function quoteSearchTerm(value) {
+  return `"${String(value || "").replace(/"/g, "")}"`;
+}
+
+function looksLikeTitleMatch(searchTitle, foundTitle) {
+  return tokenSortRatio(normalizeTitle(searchTitle), normalizeTitle(foundTitle)) >= 0.88;
+}
+
+function infoboxField(wikitext, field) {
+  const match = String(wikitext || "").match(new RegExp(`\\|\\s*${field}\\s*=\\s*([^\\n]+)`, "i"));
+  return match ? match[1] : "";
+}
+
+function splitWikipediaNames(value) {
+  return String(value || "")
+    .replace(/\{\{[^|}]+\|([^}]+)\}\}/g, "$1")
+    .replace(/\[\[([^|\]]+)\|([^\]]+)\]\]/g, "$2")
+    .replace(/\[\[([^\]]+)\]\]/g, "$1")
+    .replace(/<[^>]+>/g, "")
+    .split(/,|;|\band\b|<br\s*\/?>/i)
+    .map((name) => name.replace(/['"]/g, "").trim())
+    .filter((name) => name && name.length < 80 && !/^\d+$/.test(name));
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+  if (!response.ok) throw new Error(`Reference request failed with status ${response.status}`);
   return response.json();
 }
 
-async function readApiError(response) {
-  const text = await response.text();
-  if (!text) {
-    return "";
-  }
+function partyNames(parties = []) {
+  return parties.length ? parties.map((party) => party.name).join(", ") : "Not provided";
+}
 
-  try {
-    const parsed = JSON.parse(text);
-    if (typeof parsed.detail === "string") {
-      return parsed.detail;
-    }
-  } catch {
-    return text;
-  }
-
-  return text;
+function prefixLines(items) {
+  return items?.length ? items.map((item) => `- ${item}`) : ["- None returned"];
 }
 
 function setStatus(message, isError = false) {

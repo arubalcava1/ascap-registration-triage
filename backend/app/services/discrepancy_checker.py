@@ -2,6 +2,7 @@ from rapidfuzz import fuzz
 
 from app.schemas import AscapWork, CandidateWork, Discrepancy, Party
 from app.services.normalizer import (
+    normalize_compact_text,
     normalize_identifier,
     normalize_iswc,
     normalize_name,
@@ -203,6 +204,10 @@ def _party_discrepancies(
                 )
             )
 
+    if party_type == "writer" and len(normalized_party_names(ascap_parties)) == 1:
+        discrepancies.extend(_ipi_discrepancies(ascap_parties, candidate_parties, party_type))
+        return discrepancies
+
     for candidate_name in normalized_party_names(candidate_parties, publisher=publisher):
         match_name, match_score = _best_name_match(candidate_name, ascap_names)
         if not match_name or match_score < NAME_MATCH_THRESHOLD:
@@ -254,20 +259,49 @@ def _best_name_match(name: str, candidates: list[str]) -> tuple[str | None, floa
 
 
 def _name_similarity(left: str, right: str) -> float:
+    compact_score = _compact_name_similarity(left, right)
+    if compact_score:
+        return compact_score
+
     left_tokens = _name_tokens(left)
     right_tokens = _name_tokens(right)
     if not left_tokens or not right_tokens:
         return 0.0
     if left_tokens <= right_tokens or right_tokens <= left_tokens:
         return 100.0
+    if _shared_distinctive_tokens_match(left_tokens, right_tokens):
+        return 100.0
     return float(fuzz.token_sort_ratio(left, right))
+
+
+def _compact_name_similarity(left: str, right: str) -> float:
+    left_compact = normalize_compact_text(left)
+    right_compact = normalize_compact_text(right)
+    if not left_compact or not right_compact:
+        return 0.0
+    if left_compact == right_compact:
+        return 100.0
+    if min(len(left_compact), len(right_compact)) >= 4 and (
+        left_compact in right_compact or right_compact in left_compact
+    ):
+        return 100.0
+    if min(len(left_compact), len(right_compact)) >= 3 and fuzz.ratio(left_compact, right_compact) >= 85:
+        return 100.0
+    return 0.0
 
 
 def _is_token_subset_match(left: str, right: str) -> bool:
     left_tokens = _name_tokens(left)
     right_tokens = _name_tokens(right)
-    return bool(left_tokens and right_tokens and (left_tokens <= right_tokens or right_tokens <= left_tokens))
+    if left_tokens and right_tokens and (left_tokens <= right_tokens or right_tokens <= left_tokens):
+        return True
+    return bool(_compact_name_similarity(left, right))
 
 
 def _name_tokens(value: str) -> set[str]:
     return {token for token in value.split() if len(token) > 1}
+
+
+def _shared_distinctive_tokens_match(left_tokens: set[str], right_tokens: set[str]) -> bool:
+    shared_tokens = {token for token in left_tokens & right_tokens if len(token) >= 3}
+    return len(shared_tokens) >= 2

@@ -13,6 +13,7 @@ class AscapWork(BaseModel):
     title: str = Field(..., min_length=1)
     song_code: str | None = None
     iswc: str | None = None
+    performer: str | None = None
     alternate_titles: list[str] = Field(default_factory=list)
     writers: list[Party] = Field(default_factory=list)
     publishers: list[Party] = Field(default_factory=list)

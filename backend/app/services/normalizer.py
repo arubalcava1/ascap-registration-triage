@@ -30,6 +30,15 @@ def normalize_text(value: str | None) -> str:
     return re.sub(r"\s+", " ", normalized).strip()
 
 
+def normalize_compact_text(value: str | None) -> str:
+    if not value:
+        return ""
+    normalized = unicodedata.normalize("NFKD", value)
+    normalized = normalized.encode("ascii", "ignore").decode("ascii")
+    normalized = normalized.lower()
+    return re.sub(r"[^a-z0-9]", "", normalized)
+
+
 def normalize_title(title: str | None) -> str:
     text = normalize_text(title)
     if not text:
@@ -74,4 +83,3 @@ def normalized_party_names(parties: list[Party], *, publisher: bool = False) -> 
 
 def normalized_ipis(parties: list[Party]) -> set[str]:
     return {ipi for party in parties if (ipi := normalize_ipi_cae(party.ipi_cae))}
-

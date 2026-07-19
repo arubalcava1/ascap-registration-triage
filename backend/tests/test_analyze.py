@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -5,6 +6,22 @@ from app.services.writer_reference import WriterReference
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def disable_live_writer_reference_lookup(monkeypatch) -> None:
+    def fake_lookup(ascap_work, candidates=None):
+        return WriterReference(
+            writers=[],
+            sources=[],
+            status="not_found",
+            note="No public writer reference was found in test mode.",
+        )
+
+    monkeypatch.setattr(
+        "app.services.writer_reference.lookup_external_writer_reference",
+        fake_lookup,
+    )
 
 
 def test_health_check() -> None:
@@ -336,6 +353,149 @@ def test_case_and_last_name_only_writer_match_has_no_name_discrepancy() -> None:
     assert "extra_writer" not in discrepancy_types
 
 
+def test_apostrophe_variation_writer_match_has_no_name_discrepancy() -> None:
+    payload = {
+        "ascap_work": {
+            "title": "ALL MY FRIENDS",
+            "song_code": None,
+            "iswc": None,
+            "alternate_titles": [],
+            "writers": [
+                {"name": "sheyaa", "ipi_cae": None, "share": None},
+            ],
+            "publishers": [],
+            "source_url": None,
+            "notes": None,
+        },
+        "candidates": [
+            {
+                "source": "ASCAP Repertory",
+                "title": "ALL MY FRIENDS",
+                "public_work_id": "918814005",
+                "iswc": "T9306157620",
+                "alternate_titles": [],
+                "writers": [
+                    {"name": "BELL LOUIS RUSSELL", "ipi_cae": None, "share": None},
+                    {"name": "BIN ABRAHAM-JOSEPH SHE'YAA", "ipi_cae": None, "share": None},
+                    {"name": "GALETTE TRAVIS DYLAN", "ipi_cae": None, "share": None},
+                ],
+                "publishers": [],
+                "status": None,
+                "source_url": None,
+                "raw_notes": None,
+            }
+        ],
+    }
+
+    response = client.post("/api/analyze", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    discrepancy_types = {item["type"] for item in data["top_result"]["discrepancies"]}
+    assert "writer_name_variation" not in discrepancy_types
+    assert "missing_writer" not in discrepancy_types
+    assert data["top_result"]["confidence_label"] in {"Strong Match", "Possible Match"}
+
+
+def test_symbol_punctuation_writer_match_has_no_name_discrepancy() -> None:
+    payload = {
+        "ascap_work": {
+            "title": "EXAMPLE HIT",
+            "song_code": None,
+            "iswc": None,
+            "alternate_titles": [],
+            "writers": [
+                {"name": "pink", "ipi_cae": None, "share": None},
+            ],
+            "publishers": [],
+            "source_url": None,
+            "notes": None,
+        },
+        "candidates": [
+            {
+                "source": "ASCAP Repertory",
+                "title": "EXAMPLE HIT",
+                "public_work_id": "11111",
+                "iswc": None,
+                "alternate_titles": [],
+                "writers": [
+                    {"name": "P!NK", "ipi_cae": None, "share": None},
+                ],
+                "publishers": [],
+                "status": None,
+                "source_url": None,
+                "raw_notes": None,
+            }
+        ],
+    }
+
+    response = client.post("/api/analyze", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    discrepancy_types = {item["type"] for item in data["top_result"]["discrepancies"]}
+    assert "writer_name_variation" not in discrepancy_types
+    assert "missing_writer" not in discrepancy_types
+    assert "extra_writer" not in discrepancy_types
+    assert data["top_result"]["confidence_label"] == "Strong Match"
+
+
+def test_single_entered_writer_is_search_filter_not_complete_writer_set(monkeypatch) -> None:
+    def fake_reference_lookup(ascap_work, candidates):
+        return None
+
+    monkeypatch.setattr(
+        "app.services.matcher.maybe_lookup_external_writer_reference",
+        fake_reference_lookup,
+    )
+
+    payload = {
+        "ascap_work": {
+            "title": "choosin texas",
+            "song_code": None,
+            "iswc": None,
+            "alternate_titles": [],
+            "writers": [{"name": "langley", "ipi_cae": None, "share": None}],
+            "publishers": [],
+            "source_url": None,
+            "notes": None,
+        },
+        "candidates": [
+            {
+                "source": "ASCAP Repertory",
+                "title": "CHOOSIN' TEXAS",
+                "public_work_id": "927957597",
+                "iswc": "T3363171879",
+                "alternate_titles": [],
+                "writers": [
+                    {"name": "DICK LUKE", "ipi_cae": None, "share": None},
+                    {"name": "LAMBERT MIRANDA", "ipi_cae": None, "share": None},
+                    {"name": "LANGLEY ELIZABETH CAMILLE", "ipi_cae": None, "share": None},
+                    {"name": "TAYLOR JOYBETH", "ipi_cae": None, "share": None},
+                ],
+                "publishers": [
+                    {"name": "BADA BING BADA BOOM PUBLISHING", "ipi_cae": None, "share": None},
+                    {"name": "BRIDGE 1 MUSIC", "ipi_cae": None, "share": None},
+                ],
+                "status": None,
+                "source_url": None,
+                "raw_notes": None,
+            }
+        ],
+    }
+
+    response = client.post("/api/analyze", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["top_result"]["candidate"]["public_work_id"] == "927957597"
+    assert data["top_result"]["confidence_label"] == "Strong Match"
+    assert data["review_decision"]["label"] == "Likely Same Work"
+    discrepancy_types = {item["type"] for item in data["top_result"]["discrepancies"]}
+    assert "missing_writer" not in discrepancy_types
+    assert "extra_writer" not in discrepancy_types
+
+
 def test_external_writer_reference_ranks_complete_ascap_work_first(monkeypatch) -> None:
     def fake_reference_lookup(ascap_work, candidates):
         return WriterReference(
@@ -427,8 +587,60 @@ def test_external_writer_reference_ranks_complete_ascap_work_first(monkeypatch) 
     assert "External Writer Reference" in data["report_text"]
 
 
-def test_external_writer_reference_ignored_when_it_misses_entered_writer(monkeypatch) -> None:
-    def fake_lookup(ascap_work):
+def test_reference_writer_first_last_match_ignores_candidate_middle_name(monkeypatch) -> None:
+    def fake_reference_lookup(ascap_work, candidates):
+        return WriterReference(
+            writers=["Bradley Nowell"],
+            sources=["MusicBrainz"],
+            status="found",
+            note="Test reference.",
+        )
+
+    monkeypatch.setattr(
+        "app.services.matcher.maybe_lookup_external_writer_reference",
+        fake_reference_lookup,
+    )
+
+    payload = {
+        "ascap_work": {
+            "title": "BADFISH",
+            "song_code": None,
+            "iswc": None,
+            "alternate_titles": [],
+            "writers": [{"name": "nowell", "ipi_cae": None, "share": None}],
+            "publishers": [],
+            "source_url": None,
+            "notes": None,
+        },
+        "candidates": [
+            {
+                "source": "ASCAP Repertory",
+                "title": "BADFISH",
+                "public_work_id": "902491331",
+                "iswc": "T9168033678",
+                "alternate_titles": ["BAD FISH"],
+                "writers": [{"name": "NOWELL BRADLEY JAMES", "ipi_cae": None, "share": None}],
+                "publishers": [],
+                "status": None,
+                "source_url": None,
+                "raw_notes": None,
+            }
+        ],
+    }
+
+    response = client.post("/api/analyze", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["top_result"]["confidence_label"] == "Strong Match"
+    discrepancy_types = {item["type"] for item in data["top_result"]["discrepancies"]}
+    assert "missing_reference_writer" not in discrepancy_types
+    assert "extra_reference_writer" not in discrepancy_types
+    assert data["review_decision"]["label"] == "Likely Same Work"
+
+
+def test_captured_reference_used_when_external_reference_misses_entered_writer(monkeypatch) -> None:
+    def fake_lookup(ascap_work, candidates=None):
         return WriterReference(
             writers=["Trey Anastasio", "Tom Marshall"],
             sources=["MusicBrainz"],
@@ -491,8 +703,13 @@ def test_external_writer_reference_ignored_when_it_misses_entered_writer(monkeyp
 
     assert response.status_code == 200
     data = response.json()
-    assert data["external_writer_reference"]["lookup_status"] == "not_found"
-    assert data["external_writer_reference"]["writers"] == []
+    assert data["external_writer_reference"]["lookup_status"] == "found"
+    assert data["external_writer_reference"]["sources"] == ["Captured ASCAP public repertoire"]
+    assert data["external_writer_reference"]["writers"] == [
+        "MELDAL-JOHNSEN JUSTIN",
+        "WILLIAMS HAYLEY NICHOLE",
+        "YORK TAYLOR BENJAMIN",
+    ]
     assert data["top_result"]["candidate"]["public_work_id"] == "885004118"
     top_discrepancy_types = {item["type"] for item in data["top_result"]["discrepancies"]}
     assert "missing_reference_writer" not in top_discrepancy_types

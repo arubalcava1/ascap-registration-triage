@@ -17,7 +17,7 @@ Core responsibilities:
 * Rank candidate ASCAP works against the work under review.
 * Ignore ISWC / ASCAP song code as match criteria unless the user provides those fields.
 * Use writer names as the strongest signal, including last-name-only input support.
-* Use public music metadata APIs, such as MusicBrainz and Wikidata/Wikipedia, as advisory songwriter reference evidence.
+* Use public music metadata APIs, such as MusicBrainz, Wikidata, and Wikipedia, as advisory songwriter reference evidence.
 * Generate conservative review decisions and copyable reports.
 
 ## Setup
@@ -96,7 +96,7 @@ POST /api/analyze
 
 ## Public Writer Reference
 
-The backend can look up public songwriter reference data for the searched work using documented/public metadata sources. This currently favors music metadata APIs over raw page scraping.
+The backend can look up public songwriter reference data for the searched work using documented/public metadata sources. This currently favors music metadata APIs and public encyclopedia APIs over raw page scraping.
 
 Important boundaries:
 

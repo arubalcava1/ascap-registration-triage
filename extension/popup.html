@@ -14,12 +14,23 @@
             <div class="eyebrow">ASCAP Registration Triage</div>
             <h1>Repertoire Match Assistant</h1>
           </div>
-          <div id="backendStatus" class="backend-status backend-status--checking">Backend checking</div>
+          <div class="title-controls">
+            <label class="theme-control" for="themeSelect">
+              <span>Theme</span>
+              <select id="themeSelect" aria-label="Choose color theme">
+                <option value="ascap">Default</option>
+                <option value="warner">Gold</option>
+                <option value="universal">Black</option>
+                <option value="sony">Red</option>
+              </select>
+            </label>
+            <div id="backendStatus" class="backend-status backend-status--connected">Runs in Chrome</div>
+          </div>
         </div>
         <div class="panel-header">
           <div>
             <h2>Work under review</h2>
-            <p>Enter the ASCAP metadata you are checking.</p>
+            <p>Enter the strongest ASCAP search clues you have. Title plus one writer last name is usually enough.</p>
           </div>
         </div>
         <div class="grid">
@@ -58,7 +69,7 @@
         <div class="panel-header">
           <div>
             <h2>Capture current tab</h2>
-            <p>Use this while viewing ASCAP public repertoire results. The extension expands visible results, captures each work separately, and runs analysis.</p>
+            <p>Use this after ASCAP results load. Visible works are captured separately, deduped, and sent to analysis.</p>
           </div>
         </div>
         <div class="actions">
@@ -83,7 +94,7 @@
         <div class="panel-header">
           <div>
             <h2>Ranked results</h2>
-            <p id="summaryText">Run analysis after capturing candidates.</p>
+            <p id="summaryText">Matches are ranked for review, not treated as official ASCAP determinations.</p>
           </div>
         </div>
         <div id="writerReferenceCard" class="reference-card hidden"></div>

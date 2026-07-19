@@ -72,8 +72,7 @@ def _summary(top_result: CandidateAnalysisResult | None, candidate_count: int) -
         return "No candidate records were analyzed."
     return (
         f"Analyzed {candidate_count} candidate record(s). "
-        f"Top candidate is ranked as {top_result.confidence_label} with a "
-        f"{top_result.confidence_score}% confidence score."
+        f"Top candidate is ranked as {top_result.confidence_label}."
     )
 
 

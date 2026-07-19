@@ -2,6 +2,7 @@ from rapidfuzz import fuzz, process
 
 from app.schemas import AscapWork, CandidateWork, MatchingEvidence
 from app.services.normalizer import (
+    normalize_compact_text,
     normalize_identifier,
     normalize_iswc,
     normalize_title,
@@ -27,7 +28,7 @@ def confidence_label(score: float) -> str:
         return "Possible Match"
     if score >= 40:
         return "Weak Match"
-    return "Needs Manual Review"
+    return "Not a Match"
 
 
 def best_name_similarity(name: str, candidates: str) -> float:
@@ -167,7 +168,10 @@ def _score_party_name_overlap(ascap_parties, candidate_parties, *, publisher: bo
 
     recall = sum(recall_scores) / len(recall_scores)
     precision = sum(precision_scores) / len(precision_scores)
-    recall_weight = 0.65 if not publisher else 0.55
+    if not publisher and len(ascap_names) == 1:
+        recall_weight = 0.95
+    else:
+        recall_weight = 0.65 if not publisher else 0.55
     return (recall * recall_weight) + (precision * (1 - recall_weight))
 
 
@@ -203,6 +207,9 @@ def _writer_set_penalty(
         return 0.0
 
     missing_ratio = _low_match_ratio(ascap_names, candidate_names)
+    if len(ascap_names) == 1:
+        return missing_ratio * 45.0
+
     extra_ratio = _low_match_ratio(candidate_names, ascap_names)
     exact_iswc_match = _has_comparable_iswc(ascap_work, candidate) and _score_iswc(ascap_work, candidate) == 1.0
     extra_penalty = 20.0 if exact_iswc_match else 70.0
@@ -221,17 +228,44 @@ def _best_name_similarity(name: str, candidates: list[str]) -> float:
 
 
 def _name_similarity(left: str, right: str) -> float:
+    compact_score = _compact_name_similarity(left, right)
+    if compact_score:
+        return compact_score
+
     left_tokens = _name_tokens(left)
     right_tokens = _name_tokens(right)
     if not left_tokens or not right_tokens:
         return 0.0
     if left_tokens <= right_tokens or right_tokens <= left_tokens:
         return 1.0
+    if _shared_distinctive_tokens_match(left_tokens, right_tokens):
+        return 1.0
     return fuzz.token_sort_ratio(left, right) / 100
+
+
+def _compact_name_similarity(left: str, right: str) -> float:
+    left_compact = normalize_compact_text(left)
+    right_compact = normalize_compact_text(right)
+    if not left_compact or not right_compact:
+        return 0.0
+    if left_compact == right_compact:
+        return 1.0
+    if min(len(left_compact), len(right_compact)) >= 4 and (
+        left_compact in right_compact or right_compact in left_compact
+    ):
+        return 1.0
+    if min(len(left_compact), len(right_compact)) >= 3 and fuzz.ratio(left_compact, right_compact) >= 85:
+        return 1.0
+    return 0.0
 
 
 def _name_tokens(value: str) -> set[str]:
     return {token for token in value.split() if len(token) > 1}
+
+
+def _shared_distinctive_tokens_match(left_tokens: set[str], right_tokens: set[str]) -> bool:
+    shared_tokens = {token for token in left_tokens & right_tokens if len(token) >= 3}
+    return len(shared_tokens) >= 2
 
 
 def _add_evidence(
