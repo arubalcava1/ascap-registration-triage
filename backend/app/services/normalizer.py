@@ -75,12 +75,3 @@ def normalized_party_names(parties: list[Party], *, publisher: bool = False) -> 
 def normalized_ipis(parties: list[Party]) -> set[str]:
     return {ipi for party in parties if (ipi := normalize_ipi_cae(party.ipi_cae))}
 
-
-def shares_by_normalized_name(parties: list[Party], *, publisher: bool = False) -> dict[str, float]:
-    normalize = normalize_publisher_name if publisher else normalize_name
-    shares: dict[str, float] = {}
-    for party in parties:
-        name = normalize(party.name)
-        if name and party.share is not None:
-            shares[name] = party.share
-    return shares

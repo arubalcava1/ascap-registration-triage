@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.writer_reference import WriterReference
 
 
 client = TestClient(app)
@@ -30,7 +31,6 @@ def test_analyze_ranks_candidates_and_detects_discrepancies() -> None:
 
     discrepancy_types = {item["type"] for item in data["results"][0]["discrepancies"]}
     assert "extra_writer" in discrepancy_types
-    assert "writer_share_mismatch" in discrepancy_types
     assert "iswc_missing_from_ascap_metadata" not in discrepancy_types
 
     assert data["review_decision"]["label"] == "Needs Manual Review"
@@ -334,6 +334,98 @@ def test_case_and_last_name_only_writer_match_has_no_name_discrepancy() -> None:
     assert "writer_name_variation" not in discrepancy_types
     assert "missing_writer" not in discrepancy_types
     assert "extra_writer" not in discrepancy_types
+
+
+def test_external_writer_reference_ranks_complete_ascap_work_first(monkeypatch) -> None:
+    def fake_reference_lookup(ascap_work, candidates):
+        return WriterReference(
+            writers=["Floyd Gaugh", "Bradley Nowell", "Eric Wilson"],
+            sources=["Wikidata"],
+            status="found",
+            note="Test reference.",
+        )
+
+    monkeypatch.setattr(
+        "app.services.matcher.maybe_lookup_external_writer_reference",
+        fake_reference_lookup,
+    )
+
+    payload = {
+        "ascap_work": {
+            "title": "SANTERIA",
+            "song_code": None,
+            "iswc": None,
+            "alternate_titles": [],
+            "writers": [{"name": "nowell", "ipi_cae": None, "share": None}],
+            "publishers": [],
+            "source_url": None,
+            "notes": None,
+        },
+        "candidates": [
+            {
+                "source": "ASCAP Repertory",
+                "title": "SANTERIA",
+                "public_work_id": "920301270",
+                "iswc": "T3176629151",
+                "alternate_titles": [],
+                "writers": [
+                    {"name": "BURNS DAIMON LASHON", "ipi_cae": None, "share": None},
+                    {"name": "NOWELL BRADLEY JAMES", "ipi_cae": None, "share": None},
+                ],
+                "publishers": [],
+                "status": None,
+                "source_url": None,
+                "raw_notes": None,
+            },
+            {
+                "source": "ASCAP Repertory",
+                "title": "SANTERIA",
+                "public_work_id": "490865115",
+                "iswc": "T0709421237",
+                "alternate_titles": [],
+                "writers": [
+                    {"name": "GAUGH FLOYD I", "ipi_cae": None, "share": None},
+                    {"name": "NOWELL BRADLEY JAMES", "ipi_cae": None, "share": None},
+                    {"name": "WILSON ERIC JOHN", "ipi_cae": None, "share": None},
+                ],
+                "publishers": [],
+                "status": None,
+                "source_url": None,
+                "raw_notes": None,
+            },
+        ],
+    }
+
+    response = client.post("/api/analyze", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["top_result"]["candidate"]["public_work_id"] == "490865115"
+    assert data["external_writer_reference"]["writers"] == [
+        "Floyd Gaugh",
+        "Bradley Nowell",
+        "Eric Wilson",
+    ]
+    wrong_result = next(
+        result for result in data["results"] if result["candidate"]["public_work_id"] == "920301270"
+    )
+    discrepancy_types = {item["type"] for item in wrong_result["discrepancies"]}
+    assert "missing_reference_writer" in discrepancy_types
+    assert "extra_reference_writer" in discrepancy_types
+    assert "External Writer Reference" in data["report_text"]
+
+
+def test_split_style_input_no_longer_drives_share_scoring() -> None:
+    payload = _payload()
+
+    response = client.post("/api/analyze", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    evidence_fields = {item["field"] for item in data["top_result"]["matching_evidence"]}
+    discrepancy_types = {item["type"] for item in data["top_result"]["discrepancies"]}
+    assert "shares" not in evidence_fields
+    assert "writer_share_mismatch" not in discrepancy_types
 
 
 def _payload() -> dict:

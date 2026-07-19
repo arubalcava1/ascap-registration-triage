@@ -8,22 +8,28 @@ from app.services.normalizer import (
     normalize_publisher_name,
     normalize_title,
     normalized_party_names,
-    shares_by_normalized_name,
 )
+from app.services.writer_reference import WriterReference, candidate_reference_matches
 
 
 NAME_MATCH_THRESHOLD = 88
 
 
-def detect_discrepancies(ascap_work: AscapWork, candidate: CandidateWork) -> list[Discrepancy]:
+def detect_discrepancies(
+    ascap_work: AscapWork,
+    candidate: CandidateWork,
+    writer_reference: WriterReference | None = None,
+) -> list[Discrepancy]:
     discrepancies: list[Discrepancy] = []
 
     discrepancies.extend(_title_discrepancies(ascap_work, candidate))
     discrepancies.extend(_song_code_discrepancies(ascap_work, candidate))
     discrepancies.extend(_iswc_discrepancies(ascap_work, candidate))
-    discrepancies.extend(_party_discrepancies(ascap_work.writers, candidate.writers, "writer"))
+    if writer_reference and writer_reference.writers:
+        discrepancies.extend(_external_writer_reference_discrepancies(candidate, writer_reference))
+    else:
+        discrepancies.extend(_party_discrepancies(ascap_work.writers, candidate.writers, "writer"))
     discrepancies.extend(_party_discrepancies(ascap_work.publishers, candidate.publishers, "publisher"))
-    discrepancies.extend(_share_discrepancies(ascap_work, candidate))
 
     if candidate.status:
         discrepancies.append(
@@ -33,6 +39,38 @@ def detect_discrepancies(ascap_work: AscapWork, candidate: CandidateWork) -> lis
                 field="status",
                 description=f"Candidate status is listed as '{candidate.status}'.",
                 suggested_review_note="Review the public status indicator in the source record.",
+            )
+        )
+
+    return discrepancies
+
+
+def _external_writer_reference_discrepancies(
+    candidate: CandidateWork,
+    writer_reference: WriterReference,
+) -> list[Discrepancy]:
+    _, missing_writers, extra_writers = candidate_reference_matches(candidate, writer_reference)
+    discrepancies: list[Discrepancy] = []
+
+    for writer in missing_writers:
+        discrepancies.append(
+            Discrepancy(
+                type="missing_reference_writer",
+                severity="high",
+                field="external_writers",
+                description=f"Candidate is missing public reference writer '{writer}'.",
+                suggested_review_note="Review this candidate against the public writer reference before treating it as the likely match.",
+            )
+        )
+
+    for writer in extra_writers:
+        discrepancies.append(
+            Discrepancy(
+                type="extra_reference_writer",
+                severity="high",
+                field="external_writers",
+                description=f"Candidate includes writer '{writer}' not found in the public writer reference.",
+                suggested_review_note="Review whether this public candidate is a different work or alternate registration.",
             )
         )
 
@@ -231,37 +269,3 @@ def _is_token_subset_match(left: str, right: str) -> bool:
 def _name_tokens(value: str) -> set[str]:
     return {token for token in value.split() if len(token) > 1}
 
-
-def _share_discrepancies(ascap_work: AscapWork, candidate: CandidateWork) -> list[Discrepancy]:
-    discrepancies: list[Discrepancy] = []
-    discrepancies.extend(_share_discrepancies_for_parties(ascap_work.writers, candidate.writers, "writer"))
-    discrepancies.extend(
-        _share_discrepancies_for_parties(ascap_work.publishers, candidate.publishers, "publisher")
-    )
-    return discrepancies
-
-
-def _share_discrepancies_for_parties(
-    ascap_parties: list[Party],
-    candidate_parties: list[Party],
-    party_type: str,
-) -> list[Discrepancy]:
-    publisher = party_type == "publisher"
-    ascap_shares = shares_by_normalized_name(ascap_parties, publisher=publisher)
-    candidate_shares = shares_by_normalized_name(candidate_parties, publisher=publisher)
-    discrepancies: list[Discrepancy] = []
-
-    for name in set(ascap_shares) & set(candidate_shares):
-        difference = abs(ascap_shares[name] - candidate_shares[name])
-        if difference >= 0.01:
-            discrepancies.append(
-                Discrepancy(
-                    type=f"{party_type}_share_mismatch",
-                    severity="medium",
-                    field=f"{party_type}_shares",
-                    description=f"{party_type.title()} share differs for '{name}': ASCAP metadata has {ascap_shares[name]}%, candidate has {candidate_shares[name]}%.",
-                    suggested_review_note="Review ownership share values in both records.",
-                )
-            )
-
-    return discrepancies

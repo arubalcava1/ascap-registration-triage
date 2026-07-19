@@ -7,8 +7,8 @@ from app.services.normalizer import (
     normalize_title,
     normalized_ipis,
     normalized_party_names,
-    shares_by_normalized_name,
 )
+from app.services.writer_reference import WriterReference, candidate_reference_matches
 
 
 TITLE_WEIGHT = 20.0
@@ -17,7 +17,7 @@ ISWC_WEIGHT = 20.0
 WRITER_IPI_WEIGHT = 20.0
 WRITER_NAME_WEIGHT = 35.0
 PUBLISHER_WEIGHT = 10.0
-SHARE_WEIGHT = 15.0
+REFERENCE_WRITER_WEIGHT = 45.0
 
 
 def confidence_label(score: float) -> str:
@@ -34,7 +34,11 @@ def best_name_similarity(name: str, candidates: str) -> float:
     return _name_similarity(name, candidates)
 
 
-def score_candidate(ascap_work: AscapWork, candidate: CandidateWork) -> tuple[float, list[MatchingEvidence]]:
+def score_candidate(
+    ascap_work: AscapWork,
+    candidate: CandidateWork,
+    writer_reference: WriterReference | None = None,
+) -> tuple[float, list[MatchingEvidence]]:
     evidence: list[MatchingEvidence] = []
     weighted_scores: list[tuple[float, float]] = []
 
@@ -61,6 +65,17 @@ def score_candidate(ascap_work: AscapWork, candidate: CandidateWork) -> tuple[fl
     _add_evidence(evidence, "writers", writer_name_score, WRITER_NAME_WEIGHT, "Writer name similarity supports this candidate")
     weighted_scores.append((writer_name_score, WRITER_NAME_WEIGHT))
 
+    if writer_reference and writer_reference.writers:
+        reference_writer_score = _score_reference_writer_match(candidate, writer_reference)
+        _add_evidence(
+            evidence,
+            "external_writers",
+            reference_writer_score,
+            REFERENCE_WRITER_WEIGHT,
+            "Public writer reference supports this candidate",
+        )
+        weighted_scores.append((reference_writer_score, REFERENCE_WRITER_WEIGHT))
+
     if ascap_work.publishers or candidate.publishers:
         publisher_score = max(
             _score_party_name_overlap(ascap_work.publishers, candidate.publishers, publisher=True),
@@ -69,17 +84,12 @@ def score_candidate(ascap_work: AscapWork, candidate: CandidateWork) -> tuple[fl
         _add_evidence(evidence, "publishers", publisher_score, PUBLISHER_WEIGHT, "Publisher similarity supports this candidate")
         weighted_scores.append((publisher_score, PUBLISHER_WEIGHT))
 
-    if _has_comparable_shares(ascap_work, candidate):
-        share_score = _score_share_similarity(ascap_work, candidate)
-        _add_evidence(evidence, "shares", share_score, SHARE_WEIGHT, "Ownership share comparison supports this candidate")
-        weighted_scores.append((share_score, SHARE_WEIGHT))
-
     available_weight = sum(weight for _, weight in weighted_scores)
     if available_weight == 0:
         return 0.0, evidence
 
     total = sum(score * weight for score, weight in weighted_scores) / available_weight * 100
-    total = max(0.0, total - _writer_set_penalty(ascap_work, candidate))
+    total = max(0.0, total - _writer_set_penalty(ascap_work, candidate, writer_reference))
 
     return round(total, 2), evidence
 
@@ -98,12 +108,6 @@ def _has_ascap_song_code(ascap_work: AscapWork) -> bool:
 
 def _has_comparable_ipis(ascap_parties, candidate_parties) -> bool:
     return bool(normalized_ipis(ascap_parties) and normalized_ipis(candidate_parties))
-
-
-def _has_comparable_shares(ascap_work: AscapWork, candidate: CandidateWork) -> bool:
-    return _share_overlap(ascap_work.writers, candidate.writers) is not None or _share_overlap(
-        ascap_work.publishers, candidate.publishers, publisher=True
-    ) is not None
 
 
 def _score_title(ascap_work: AscapWork, candidate: CandidateWork) -> float:
@@ -167,7 +171,32 @@ def _score_party_name_overlap(ascap_parties, candidate_parties, *, publisher: bo
     return (recall * recall_weight) + (precision * (1 - recall_weight))
 
 
-def _writer_set_penalty(ascap_work: AscapWork, candidate: CandidateWork) -> float:
+def _score_reference_writer_match(candidate: CandidateWork, writer_reference: WriterReference) -> float:
+    matched, missing, extra = candidate_reference_matches(candidate, writer_reference)
+    expected_count = len(writer_reference.writers)
+    candidate_count = len(normalized_party_names(candidate.writers))
+    if expected_count == 0 or candidate_count == 0:
+        return 0.0
+
+    recall = len(matched) / expected_count
+    precision = max(0.0, 1.0 - (len(extra) / max(candidate_count, 1)))
+    missing_penalty = len(missing) / expected_count
+    return max(0.0, min(1.0, (recall * 0.75) + (precision * 0.25) - (missing_penalty * 0.35)))
+
+
+def _writer_set_penalty(
+    ascap_work: AscapWork,
+    candidate: CandidateWork,
+    writer_reference: WriterReference | None = None,
+) -> float:
+    if writer_reference and writer_reference.writers:
+        _, missing_reference_writers, extra_reference_writers = candidate_reference_matches(candidate, writer_reference)
+        expected_count = max(len(writer_reference.writers), 1)
+        candidate_count = max(len(candidate.writers), 1)
+        return (len(missing_reference_writers) / expected_count * 55.0) + (
+            len(extra_reference_writers) / candidate_count * 50.0
+        )
+
     ascap_names = normalized_party_names(ascap_work.writers)
     candidate_names = normalized_party_names(candidate.writers)
     if not ascap_names or not candidate_names:
@@ -203,27 +232,6 @@ def _name_similarity(left: str, right: str) -> float:
 
 def _name_tokens(value: str) -> set[str]:
     return {token for token in value.split() if len(token) > 1}
-
-
-def _score_share_similarity(ascap_work: AscapWork, candidate: CandidateWork) -> float:
-    writer_score = _share_overlap(ascap_work.writers, candidate.writers)
-    publisher_score = _share_overlap(ascap_work.publishers, candidate.publishers, publisher=True)
-    scores = [score for score in [writer_score, publisher_score] if score is not None]
-    if not scores:
-        return 0.0
-    return sum(scores) / len(scores)
-
-
-def _share_overlap(ascap_parties, candidate_parties, *, publisher: bool = False) -> float | None:
-    ascap_shares = shares_by_normalized_name(ascap_parties, publisher=publisher)
-    candidate_shares = shares_by_normalized_name(candidate_parties, publisher=publisher)
-    common_names = set(ascap_shares) & set(candidate_shares)
-    if not common_names:
-        return None
-
-    differences = [abs(ascap_shares[name] - candidate_shares[name]) for name in common_names]
-    average_difference = sum(differences) / len(differences)
-    return max(0.0, 1.0 - (average_difference / 100))
 
 
 def _add_evidence(

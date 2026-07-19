@@ -156,6 +156,13 @@ class MatchingEvidence(BaseModel):
     score_impact: float
 
 
+class ExternalWriterReference(BaseModel):
+    writers: list[str] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
+    lookup_status: str
+    note: str | None = None
+
+
 class NormalizedComparison(BaseModel):
     ascap_title: str
     candidate_title: str
@@ -192,6 +199,7 @@ class AnalyzeResponse(BaseModel):
     results: list[CandidateAnalysisResult]
     top_result: CandidateAnalysisResult | None
     review_decision: ReviewDecision
+    external_writer_reference: ExternalWriterReference | None = None
     summary: str
     report_text: str
     disclaimer: str

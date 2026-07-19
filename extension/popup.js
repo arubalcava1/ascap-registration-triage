@@ -359,15 +359,12 @@ function parseParties(value) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => {
-      const [name, share] = line.split("|").map((part) => part.trim());
-      const parsedShare = share ? Number.parseFloat(share.replace("%", "")) : Number.NaN;
-      return {
-        name,
-        ipi_cae: null,
-        share: Number.isFinite(parsedShare) ? parsedShare : null,
-      };
-    });
+    .map((line) => ({
+      name: line.replace(/\s+\|\s*\d+(?:\.\d+)?\s*%?\s*$/, "").trim(),
+      ipi_cae: null,
+      share: null,
+    }))
+    .filter((party) => party.name);
 }
 
 function render() {
@@ -592,15 +589,27 @@ function buildRankReason(result) {
 }
 
 function buildRankIssueSummary(result) {
-  const writerDiscrepancies = result.discrepancies.filter((item) => item.field === "writers");
+  const writerDiscrepancies = result.discrepancies.filter((item) => ["writers", "external_writers"].includes(item.field));
   const missingWriters = extractNamesFromDiscrepancies(writerDiscrepancies.filter((item) => item.type === "missing_writer"));
   const extraWriters = extractNamesFromDiscrepancies(writerDiscrepancies.filter((item) => item.type === "extra_writer"));
+  const missingReferenceWriters = extractNamesFromDiscrepancies(
+    writerDiscrepancies.filter((item) => item.type === "missing_reference_writer"),
+  );
+  const extraReferenceWriters = extractNamesFromDiscrepancies(
+    writerDiscrepancies.filter((item) => item.type === "extra_reference_writer"),
+  );
   const issues = [];
   if (missingWriters.length) {
     issues.push(`Missing searched writer(s): ${missingWriters.join(", ")}`);
   }
   if (extraWriters.length) {
     issues.push(`Extra candidate writer(s): ${extraWriters.join(", ")}`);
+  }
+  if (missingReferenceWriters.length) {
+    issues.push(`Missing public reference writer(s): ${missingReferenceWriters.join(", ")}`);
+  }
+  if (extraReferenceWriters.length) {
+    issues.push(`Not in public writer reference: ${extraReferenceWriters.join(", ")}`);
   }
   return issues.join(". ");
 }
@@ -613,9 +622,11 @@ function hasProvidedIdentifierEvidence(result) {
 }
 
 function renderWriterReview(result) {
-  const writerDiscrepancies = result.discrepancies.filter((item) => item.field === "writers");
+  const writerDiscrepancies = result.discrepancies.filter((item) => ["writers", "external_writers"].includes(item.field));
   const missingWriters = writerDiscrepancies.filter((item) => item.type === "missing_writer");
   const extraWriters = writerDiscrepancies.filter((item) => item.type === "extra_writer");
+  const missingReferenceWriters = writerDiscrepancies.filter((item) => item.type === "missing_reference_writer");
+  const extraReferenceWriters = writerDiscrepancies.filter((item) => item.type === "extra_reference_writer");
   const matchedPairs = buildMatchedWriterPairs(
     result.comparison_details.ascap_writers || [],
     result.comparison_details.candidate_writers || [],
@@ -627,6 +638,8 @@ function renderWriterReview(result) {
       ${matchedPairs.length ? `<div class="match-lines">${matchedPairs.map((pair) => `<span>${escapeHtml(pair)}</span>`).join("")}</div>` : `<div class="muted-line">No writer matches found.</div>`}
       ${missingWriters.length ? `<div class="warning-line">Missing: ${escapeHtml(extractNamesFromDiscrepancies(missingWriters).join(", "))}</div>` : ""}
       ${extraWriters.length ? `<div class="warning-line">Extra: ${escapeHtml(extractNamesFromDiscrepancies(extraWriters).join(", "))}</div>` : ""}
+      ${missingReferenceWriters.length ? `<div class="warning-line">Missing public reference: ${escapeHtml(extractNamesFromDiscrepancies(missingReferenceWriters).join(", "))}</div>` : ""}
+      ${extraReferenceWriters.length ? `<div class="warning-line">Not in public reference: ${escapeHtml(extractNamesFromDiscrepancies(extraReferenceWriters).join(", "))}</div>` : ""}
     </div>
   `;
 }
@@ -654,7 +667,7 @@ function renderIdentifierReview(result) {
 
 function renderEvidenceReview(result) {
   const nonWriterDiscrepancies = result.discrepancies.filter(
-    (item) => !["writers", "iswc", "song_code"].includes(item.field),
+    (item) => !["writers", "external_writers", "iswc", "song_code"].includes(item.field),
   );
   const evidence = result.matching_evidence.filter((item) => !["iswc", "song_code"].includes(item.field));
   return `
@@ -828,8 +841,7 @@ function firstPartySearchTerm(value) {
     return "";
   }
 
-  const [name] = firstLine.split("|").map((part) => part.trim());
-  return name;
+  return firstLine.replace(/\s+\|\s*\d+(?:\.\d+)?\s*%?\s*$/, "").trim();
 }
 
 function formatPartySummary(parties = []) {

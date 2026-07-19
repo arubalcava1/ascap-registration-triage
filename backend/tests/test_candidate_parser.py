@@ -35,7 +35,7 @@ Status: Reconciled
     assert data["candidate"]["iswc"] == "T-123456789-0"
     assert data["candidate"]["status"] == "Reconciled"
     assert len(data["candidate"]["writers"]) == 3
-    assert data["candidate"]["writers"][0]["share"] == 33.33
+    assert data["candidate"]["writers"][0]["share"] is None
     assert len(data["candidate"]["publishers"]) == 2
     assert data["warnings"] == []
     assert set(data["parsed_fields"]) == {

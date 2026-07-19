@@ -256,9 +256,11 @@ def _party_from_line(line: str) -> Party | None:
     if _is_artifact_line(line):
         return None
     line = re.sub(r"^(?:writer|publisher|composer|author)\s*[:\-]\s*", "", line, flags=re.IGNORECASE)
-    share = _extract_share(line)
     ipi = _extract_ipi(line)
-    name = re.sub(r"\(?\b\d+(?:\.\d+)?\s*%?\)?", "", line)
+    name = re.sub(r"\s+\|\s*\d+(?:\.\d+)?\s*%?\s*$", "", line)
+    name = re.sub(r"\(?\b\d+(?:\.\d+)?\s*%\)?", "", name)
+    if ipi:
+        name = name.replace(ipi, "")
     name = re.sub(r"\b(?:BMI|ASCAP|SESAC|GMR)\b", "", name)
     name = re.sub(r"\bshare\b", "", name, flags=re.IGNORECASE)
     name = re.sub(r"\s+[-|]\s*$", "", name).strip(" -|")
@@ -269,22 +271,7 @@ def _party_from_line(line: str) -> Party | None:
     if not name or _is_artifact_line(name) or name.lower() in {"writers", "publishers"}:
         return None
 
-    return Party(name=name, ipi_cae=ipi, share=share)
-
-
-def _extract_share(line: str) -> float | None:
-    match = re.search(r"(\d+(?:\.\d+)?)\s*%", line)
-    if not match:
-        match = re.search(r"(?:share\s*[:\-]?\s*)(\d+(?:\.\d+)?)", line, re.IGNORECASE)
-    if not match:
-        parts = [part.strip() for part in line.split("|")]
-        if len(parts) > 1:
-            try:
-                return float(parts[-1].replace("%", ""))
-            except ValueError:
-                return None
-        return None
-    return float(match.group(1))
+    return Party(name=name, ipi_cae=ipi, share=None)
 
 
 def _extract_ipi(line: str) -> str | None:

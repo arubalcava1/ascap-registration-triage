@@ -1,4 +1,4 @@
-from app.schemas import AscapWork, CandidateAnalysisResult, ReviewDecision
+from app.schemas import AscapWork, CandidateAnalysisResult, ExternalWriterReference, ReviewDecision
 from app.services.scoring import best_name_similarity
 
 
@@ -7,6 +7,7 @@ def generate_report_text(
     results: list[CandidateAnalysisResult],
     review_decision: ReviewDecision,
     disclaimer: str,
+    external_writer_reference: ExternalWriterReference | None = None,
 ) -> str:
     lines = [
         "ASCAP Possible Match Review",
@@ -28,6 +29,19 @@ def generate_report_text(
     ]
     lines.extend(_prefixed_lines(review_decision.rationale))
     lines.append("")
+
+    if external_writer_reference:
+        lines.extend(
+            [
+                "External Writer Reference",
+                "-------------------------",
+                f"Status: {external_writer_reference.lookup_status}",
+                f"Sources: {_source_names(external_writer_reference.sources)}",
+                f"Writers: {_reference_writer_names(external_writer_reference.writers)}",
+                "Note: Public reference evidence is advisory and should be reviewed against ASCAP.",
+                "",
+            ]
+        )
 
     if results:
         top_result = results[0]
@@ -112,10 +126,16 @@ def _winner_summary(ascap_work: AscapWork, result: CandidateAnalysisResult) -> l
         lines.append(f"{len(matched_writers)} writer name(s) matched the candidate record.")
     extra_writers = _discrepancy_names(result, "extra_writer")
     missing_writers = _discrepancy_names(result, "missing_writer")
+    extra_reference_writers = _discrepancy_names(result, "extra_reference_writer")
+    missing_reference_writers = _discrepancy_names(result, "missing_reference_writer")
     if extra_writers:
         lines.append(f"Candidate has extra writer(s): {', '.join(extra_writers)}.")
     if missing_writers:
         lines.append(f"Candidate is missing searched writer(s): {', '.join(missing_writers)}.")
+    if extra_reference_writers:
+        lines.append(f"Candidate has writer(s) not found in the public reference: {', '.join(extra_reference_writers)}.")
+    if missing_reference_writers:
+        lines.append(f"Candidate is missing public reference writer(s): {', '.join(missing_reference_writers)}.")
     if ascap_work.song_code and result.candidate.public_work_id:
         lines.append("ASCAP song code was compared with the candidate ASCAP Work ID.")
     if ascap_work.iswc and result.candidate.iswc:
@@ -129,6 +149,10 @@ def _writer_review_lines(result: CandidateAnalysisResult) -> list[str]:
         lines.append(f"Missing from candidate: {name}")
     for name in _discrepancy_names(result, "extra_writer"):
         lines.append(f"Extra in candidate: {name}")
+    for name in _discrepancy_names(result, "missing_reference_writer"):
+        lines.append(f"Missing public reference writer: {name}")
+    for name in _discrepancy_names(result, "extra_reference_writer"):
+        lines.append(f"Not in public writer reference: {name}")
     return lines
 
 
@@ -175,3 +199,11 @@ def _discrepancy_names(result: CandidateAnalysisResult, discrepancy_type: str) -
         else:
             names.append(item.description)
     return names
+
+
+def _source_names(sources: list[str]) -> str:
+    return ", ".join(sources) if sources else "None found"
+
+
+def _reference_writer_names(writers: list[str]) -> str:
+    return ", ".join(writers) if writers else "None found"
