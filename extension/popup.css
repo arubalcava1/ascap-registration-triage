@@ -46,11 +46,10 @@ textarea {
 
 .shell {
   display: grid;
-  gap: 12px;
-  padding: 14px;
+  gap: 10px;
+  padding: 10px;
 }
 
-.hero,
 .panel {
   border: 1px solid var(--border);
   background:
@@ -59,15 +58,6 @@ textarea {
   box-shadow:
     0 20px 52px rgba(0, 0, 0, 0.34),
     inset 0 1px 0 rgba(255, 255, 255, 0.035);
-}
-
-.hero {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border-radius: 8px;
-  padding: 14px;
 }
 
 .backend-status {
@@ -117,8 +107,8 @@ p {
 }
 
 h1 {
-  margin-top: 5px;
-  font-size: 20px;
+  margin-top: 3px;
+  font-size: 22px;
   line-height: 1.15;
 }
 
@@ -134,7 +124,19 @@ p {
 
 .panel {
   border-radius: 8px;
-  padding: 14px;
+  padding: 12px;
+}
+
+.app-title {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.app-title .backend-status {
+  justify-self: start;
 }
 
 .panel-header {
@@ -174,7 +176,7 @@ select {
 }
 
 textarea {
-  min-height: 76px;
+  min-height: 70px;
   resize: vertical;
 }
 
@@ -235,7 +237,7 @@ select:focus {
 }
 
 .compact-actions {
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .primary-button,
@@ -332,7 +334,7 @@ button:disabled {
   border: 1px solid rgba(148, 163, 184, 0.14);
   border-radius: 7px;
   background: var(--surface-2);
-  padding: 10px;
+  padding: 9px;
 }
 
 .item-title {
@@ -352,16 +354,30 @@ button:disabled {
   white-space: nowrap;
 }
 
+.item-meta--action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.item-meta--action span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .remove-button {
-  margin-top: 8px;
+  flex: 0 0 auto;
   border: 1px solid rgba(251, 138, 160, 0.24);
   border-radius: 6px;
   background: rgba(251, 138, 160, 0.08);
   color: #ffc3ce;
   cursor: pointer;
-  font-size: 11px;
-  min-height: 28px;
-  padding: 4px 9px;
+  font-size: 10px;
+  min-height: 24px;
+  padding: 3px 8px;
 }
 
 .remove-button:hover {
@@ -375,6 +391,31 @@ button:disabled {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.identifier-meta,
+.work-id-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.copy-id-button {
+  border: 1px solid rgba(103, 232, 249, 0.24);
+  border-radius: 999px;
+  background: rgba(103, 232, 249, 0.08);
+  color: #c9f3ff;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+  min-height: 22px;
+  padding: 2px 8px;
+}
+
+.copy-id-button:hover {
+  border-color: rgba(103, 232, 249, 0.46);
+  background: rgba(103, 232, 249, 0.14);
 }
 
 .review-block {
@@ -414,6 +455,82 @@ button:disabled {
 }
 
 .warning-line {
+  color: var(--warning);
+}
+
+.reference-card,
+.reference-result {
+  border: 1px solid rgba(103, 232, 249, 0.22);
+  border-radius: 7px;
+  background:
+    linear-gradient(135deg, rgba(94, 234, 212, 0.08), transparent 42%),
+    var(--surface-3);
+  padding: 9px;
+}
+
+.reference-card {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+
+.reference-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reference-heading span {
+  color: var(--primary-strong);
+}
+
+.reference-heading strong {
+  border: 1px solid rgba(94, 234, 212, 0.28);
+  border-radius: 999px;
+  background: rgba(94, 234, 212, 0.08);
+  color: #a8fff1;
+  font-size: 10px;
+  padding: 3px 7px;
+  text-transform: uppercase;
+}
+
+.reference-meta {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.reference-writers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.reference-writers span {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 999px;
+  background: rgba(8, 13, 24, 0.44);
+  color: #dff7ff;
+  font-size: 10px;
+  line-height: 1;
+  padding: 5px 7px;
+}
+
+.reference-result {
+  margin-top: 8px;
+  color: #a8fff1;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.reference-result--warning {
+  border-color: rgba(247, 200, 115, 0.28);
+  background: rgba(247, 200, 115, 0.08);
   color: var(--warning);
 }
 
@@ -506,6 +623,17 @@ button:disabled {
   padding: 4px 7px;
   text-align: right;
   white-space: nowrap;
+}
+
+.report-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.report-panel {
+  margin-top: 8px;
 }
 
 .report {

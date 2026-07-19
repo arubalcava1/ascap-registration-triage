@@ -339,8 +339,8 @@ def test_case_and_last_name_only_writer_match_has_no_name_discrepancy() -> None:
 def test_external_writer_reference_ranks_complete_ascap_work_first(monkeypatch) -> None:
     def fake_reference_lookup(ascap_work, candidates):
         return WriterReference(
-            writers=["Floyd Gaugh", "Bradley Nowell", "Eric Wilson"],
-            sources=["Wikidata"],
+            writers=["Bud Gaugh", "Bradley Nowell", "Eric Wilson"],
+            sources=["MusicBrainz"],
             status="found",
             note="Test reference.",
         )
@@ -388,7 +388,13 @@ def test_external_writer_reference_ranks_complete_ascap_work_first(monkeypatch) 
                     {"name": "NOWELL BRADLEY JAMES", "ipi_cae": None, "share": None},
                     {"name": "WILSON ERIC JOHN", "ipi_cae": None, "share": None},
                 ],
-                "publishers": [],
+                "publishers": [
+                    {"name": "ERIC JOHN WILSON PUBLISHING", "ipi_cae": None, "share": None},
+                    {"name": "FLOYD I GAUGH IV PUBLISHING", "ipi_cae": None, "share": None},
+                    {"name": "GASOLINE ALLEY MUSIC", "ipi_cae": None, "share": None},
+                    {"name": "LOU DOG PUBLISHING", "ipi_cae": None, "share": None},
+                    {"name": "SONGS OF UNIVERSAL INC", "ipi_cae": None, "share": None},
+                ],
                 "status": None,
                 "source_url": None,
                 "raw_notes": None,
@@ -401,11 +407,17 @@ def test_external_writer_reference_ranks_complete_ascap_work_first(monkeypatch) 
     assert response.status_code == 200
     data = response.json()
     assert data["top_result"]["candidate"]["public_work_id"] == "490865115"
+    assert data["top_result"]["confidence_label"] == "Strong Match"
+    assert data["review_decision"]["label"] == "Likely Same Work"
     assert data["external_writer_reference"]["writers"] == [
-        "Floyd Gaugh",
+        "Bud Gaugh",
         "Bradley Nowell",
         "Eric Wilson",
     ]
+    top_discrepancy_types = {item["type"] for item in data["top_result"]["discrepancies"]}
+    assert "missing_reference_writer" not in top_discrepancy_types
+    assert "extra_reference_writer" not in top_discrepancy_types
+    assert "extra_publisher" not in top_discrepancy_types
     wrong_result = next(
         result for result in data["results"] if result["candidate"]["public_work_id"] == "920301270"
     )

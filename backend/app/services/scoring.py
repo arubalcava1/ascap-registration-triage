@@ -76,7 +76,7 @@ def score_candidate(
         )
         weighted_scores.append((reference_writer_score, REFERENCE_WRITER_WEIGHT))
 
-    if ascap_work.publishers or candidate.publishers:
+    if ascap_work.publishers:
         publisher_score = max(
             _score_party_name_overlap(ascap_work.publishers, candidate.publishers, publisher=True),
             _score_ipi_overlap(ascap_work.publishers, candidate.publishers),

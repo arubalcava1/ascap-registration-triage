@@ -2,7 +2,7 @@
 
 ASCAP Registration Triage is an independent Chrome extension and local FastAPI backend for reviewing possible ASCAP public repertoire matches.
 
-The tool helps a user enter ASCAP work metadata, open the ASCAP public repertoire search, capture visible ASCAP public result data, rank likely matching works, highlight metadata differences, and generate a copyable review report.
+The tool helps a user enter ASCAP work metadata, open ASCAP public repertoire searches, capture visible ASCAP public result data, rank likely matching works, cross-check public songwriter reference data, copy the likely ASCAP Work ID, and generate a copyable review report.
 
 It is not an official ASCAP product. It does not access ASCAP private systems, determine legal ownership, calculate royalties, or fix registrations.
 
@@ -21,9 +21,10 @@ The current focus is ASCAP public repertoire matching. BMI-specific workflows ha
 3. The user reviews/runs the public ASCAP search.
 4. The extension captures visible ASCAP public result blocks from the active tab.
 5. The backend parses captured result text into candidate work records.
-6. The backend normalizes and compares title, writers, publishers, shares, ISWC, and ASCAP work IDs.
-7. The extension shows ranked results with explanations.
-8. The user can copy an ASCAP-focused possible match review report.
+6. The backend optionally checks public music metadata APIs for songwriter reference data.
+7. The backend normalizes and compares title, writers, publishers, ISWC, and ASCAP work IDs.
+8. The extension shows ranked results with explanations and public writer-reference alignment.
+9. The user can copy the chosen ASCAP Work ID or an ASCAP-focused possible match review report.
 
 ## Matching Priorities
 
@@ -39,11 +40,17 @@ Primary match signals:
 Secondary match signals:
 
 - Publisher similarity
-- Share comparison when shares are provided
 - ISWC comparison only when the user provides an ISWC
 - ASCAP song code / public Work ID comparison only when the user provides a song code
 
 If the user does not provide an ISWC or ASCAP song code, those fields are ignored as matching criteria.
+
+Public writer-reference support:
+
+- The backend can look up public songwriter reference data using documented/public metadata sources such as MusicBrainz and Wikidata/Wikipedia.
+- Public reference data is advisory evidence, not an official ASCAP determination.
+- If a reference writer set is found, candidates that align with the expected writers are boosted, while candidates missing expected writers or containing unrelated extra writers are flagged for review.
+- No raw web scraping, hidden ASCAP endpoints, credentialed access, or private portal automation is used for this reference step.
 
 ## Current Features
 
@@ -55,9 +62,12 @@ If the user does not provide an ISWC or ASCAP song code, those fields are ignore
 - Automatic result expansion/capture attempts
 - Candidate parsing from ASCAP result text
 - Per-candidate removal
-- Capture diagnostics and recovery notes
+- Recovery notes when capture needs attention
 - Ranked candidate analysis
 - Writer-first match explanations
+- Public writer-reference lookup via music metadata APIs
+- Public writer-reference alignment/mismatch callouts
+- Copy button for ASCAP Work IDs in ranked results
 - Copyable ASCAP possible match report
 - FastAPI backend with automated tests
 
@@ -70,6 +80,7 @@ ASCAP Registration Triage:
 - Does not automate private ASCAP Member Access actions
 - Does not bypass CAPTCHA, login walls, disclaimers, or access restrictions
 - Does not use hidden ASCAP endpoints
+- Does not scrape arbitrary websites for songwriter credits
 - Does not claim official ASCAP integration
 - Does not make legal, royalty, or ownership determinations
 
@@ -154,7 +165,8 @@ After changing extension files, click **Reload** on the extension card in `chrom
 7. Review captured candidates.
 8. Remove bad captures if needed.
 9. Review ranked results.
-10. Copy the report.
+10. Copy the likely ASCAP Work ID when useful.
+11. Open or copy the optional report.
 
 ## Backend API
 
@@ -164,7 +176,7 @@ Core endpoints:
 - `POST /api/parse-candidate`
 - `POST /api/analyze`
 
-The extension uses these endpoints locally.
+The extension uses these endpoints locally. During analysis, the backend may also use public music metadata APIs to gather advisory songwriter reference evidence.
 
 ## Testing
 
@@ -198,6 +210,8 @@ Completed or working:
 - Search assist
 - Capture and analyze flow
 - Writer-first ranking explanations
+- Public writer-reference evidence
+- ASCAP Work ID copy action
 - Copyable report
 - Local run documentation
 

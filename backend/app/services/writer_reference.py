@@ -235,11 +235,18 @@ def _name_similarity(left: str, right: str) -> float:
         return 0.0
     if left_tokens <= right_tokens or right_tokens <= left_tokens:
         return 1.0
+    if _distinctive_last_name_match(left_tokens, right_tokens):
+        return 0.95
     return fuzz.token_sort_ratio(left, right) / 100
 
 
 def _name_tokens(value: str) -> set[str]:
     return {token for token in value.lower().split() if len(token) > 1}
+
+
+def _distinctive_last_name_match(left_tokens: set[str], right_tokens: set[str]) -> bool:
+    shared_tokens = left_tokens & right_tokens
+    return any(len(token) >= 4 for token in shared_tokens)
 
 
 def _sparql_string(value: str) -> str:

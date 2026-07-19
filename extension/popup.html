@@ -8,15 +8,14 @@
   </head>
   <body>
     <main class="shell">
-      <header class="hero">
-        <div>
-          <div class="eyebrow">ASCAP Registration Triage</div>
-          <h1>Repertoire match assistant</h1>
-        </div>
-        <div id="backendStatus" class="backend-status backend-status--checking">Backend checking</div>
-      </header>
-
       <section class="panel">
+        <div class="app-title">
+          <div>
+            <div class="eyebrow">ASCAP Registration Triage</div>
+            <h1>Repertoire Match Assistant</h1>
+          </div>
+          <div id="backendStatus" class="backend-status backend-status--checking">Backend checking</div>
+        </div>
         <div class="panel-header">
           <div>
             <h2>Work under review</h2>
@@ -56,7 +55,7 @@
         <div class="panel-header">
           <div>
             <h2>Search sources</h2>
-            <p>Open ASCAP public repertoire in a normal Chrome tab. Performer is preferred; otherwise writer, then publisher.</p>
+            <p>Open ASCAP public repertoire in a normal Chrome tab using the strongest field you entered.</p>
           </div>
         </div>
         <div id="searchPlan" class="search-plan"></div>
@@ -65,9 +64,6 @@
         </div>
         <div class="actions single-action compact-actions">
           <button id="fillAscapButton" class="secondary-button" type="button">Fill ASCAP search</button>
-        </div>
-        <div class="actions single-action compact-actions">
-          <button id="copyTitleButton" class="secondary-button" type="button">Copy title</button>
         </div>
       </section>
 
@@ -102,10 +98,16 @@
             <h2>Ranked results</h2>
             <p id="summaryText">Run analysis after capturing candidates.</p>
           </div>
+        </div>
+        <div id="writerReferenceCard" class="reference-card hidden"></div>
+        <div id="resultsList" class="list"></div>
+        <div class="report-actions">
+          <button id="toggleReportButton" class="secondary-button" type="button" aria-expanded="false">Show report</button>
           <button id="copyReportButton" class="secondary-button" type="button">Copy report</button>
         </div>
-        <div id="resultsList" class="list"></div>
-        <pre id="reportText" class="report"></pre>
+        <div id="reportPanel" class="report-panel hidden">
+          <pre id="reportText" class="report"></pre>
+        </div>
       </section>
 
       <div id="statusMessage" class="status" role="status"></div>

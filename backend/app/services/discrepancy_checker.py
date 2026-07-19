@@ -177,6 +177,9 @@ def _party_discrepancies(
     ascap_display = {normalizer(party.name): party.name for party in ascap_parties}
     candidate_display = {normalizer(party.name): party.name for party in candidate_parties}
 
+    if not ascap_names:
+        return []
+
     for ascap_name in normalized_party_names(ascap_parties, publisher=publisher):
         match_name, match_score = _best_name_match(ascap_name, candidate_names)
         if not match_name or match_score < NAME_MATCH_THRESHOLD:
@@ -268,4 +271,3 @@ def _is_token_subset_match(left: str, right: str) -> bool:
 
 def _name_tokens(value: str) -> set[str]:
     return {token for token in value.split() if len(token) > 1}
-

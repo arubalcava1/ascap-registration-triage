@@ -11,7 +11,6 @@ const elements = {
   publishersInput: document.querySelector("#publishersInput"),
   openAscapButton: document.querySelector("#openAscapButton"),
   fillAscapButton: document.querySelector("#fillAscapButton"),
-  copyTitleButton: document.querySelector("#copyTitleButton"),
   searchPlan: document.querySelector("#searchPlan"),
   captureButton: document.querySelector("#captureButton"),
   clearCandidatesButton: document.querySelector("#clearCandidatesButton"),
@@ -20,8 +19,11 @@ const elements = {
   candidateCount: document.querySelector("#candidateCount"),
   captureDiagnostics: document.querySelector("#captureDiagnostics"),
   candidateList: document.querySelector("#candidateList"),
+  writerReferenceCard: document.querySelector("#writerReferenceCard"),
   resultsList: document.querySelector("#resultsList"),
   summaryText: document.querySelector("#summaryText"),
+  toggleReportButton: document.querySelector("#toggleReportButton"),
+  reportPanel: document.querySelector("#reportPanel"),
   reportText: document.querySelector("#reportText"),
   statusMessage: document.querySelector("#statusMessage"),
   backendStatus: document.querySelector("#backendStatus"),
@@ -41,6 +43,8 @@ let state = {
   analysis: null,
 };
 
+let reportOpen = false;
+
 init();
 
 async function init() {
@@ -54,12 +58,13 @@ function bindEvents() {
   elements.saveWorkButton.addEventListener("click", saveWorkFromInputs);
   elements.openAscapButton.addEventListener("click", openAscapSearch);
   elements.fillAscapButton.addEventListener("click", fillAscapSearch);
-  elements.copyTitleButton.addEventListener("click", copyTitle);
   elements.captureButton.addEventListener("click", captureCurrentTab);
   elements.clearCandidatesButton.addEventListener("click", clearCandidates);
   elements.analyzeButton.addEventListener("click", analyzeCandidates);
+  elements.toggleReportButton.addEventListener("click", toggleReport);
   elements.copyReportButton.addEventListener("click", copyReport);
   elements.candidateList.addEventListener("click", handleCandidateListClick);
+  elements.resultsList.addEventListener("click", handleResultsListClick);
 
   [
     elements.titleInput,
@@ -98,13 +103,13 @@ function saveWorkFromInputs() {
 
 async function openAscapSearch() {
   saveWorkFromInputs();
-  if (!state.work.title.trim()) {
-    setStatus("Enter a title before opening ASCAP search.", true);
+  const [search] = buildAscapSearchPlan(state.work);
+  if (!search) {
+    setStatus("Enter a title, ISWC, ASCAP work ID, performer, writer, or publisher before opening ASCAP search.", true);
     return;
   }
-  const [search] = buildAscapSearchPlan(state.work);
   await chrome.tabs.create({
-    url: buildAscapSearchUrl(state.work.title, search.type, search.term),
+    url: buildAscapSearchUrl(search),
     active: true,
   });
   setStatus("Opened ASCAP search tab.");
@@ -116,8 +121,9 @@ async function fillAscapSearch() {
 
 async function fillCurrentTabSearch(targetSource) {
   saveWorkFromInputs();
-  if (!state.work.title.trim()) {
-    setStatus("Enter a title before filling search fields.", true);
+  const [search] = buildAscapSearchPlan(state.work);
+  if (!search) {
+    setStatus("Enter a title, ISWC, ASCAP work ID, performer, writer, or publisher before filling search fields.", true);
     return;
   }
 
@@ -135,6 +141,8 @@ async function fillCurrentTabSearch(targetSource) {
         {
           targetSource,
           title: state.work.title,
+          songCode: state.work.song_code,
+          iswc: state.work.iswc,
           performer: state.work.performer,
           writer: firstWriterSearchTerm(state.work.writers),
           publisher: firstPublisherSearchTerm(state.work.publishers),
@@ -151,16 +159,6 @@ async function fillCurrentTabSearch(targetSource) {
   } catch (error) {
     setStatus(error.message, true);
   }
-}
-
-async function copyTitle() {
-  saveWorkFromInputs();
-  if (!state.work.title.trim()) {
-    setStatus("Enter a title first.", true);
-    return;
-  }
-  await navigator.clipboard.writeText(state.work.title.trim());
-  setStatus("Title copied.");
 }
 
 async function captureCurrentTab() {
@@ -266,6 +264,7 @@ async function runAnalysis() {
       }),
     });
     state.analysis = analysis;
+    reportOpen = false;
     await saveState();
     render();
     setStatus("Analysis complete.");
@@ -280,6 +279,7 @@ async function clearCandidates() {
   state.candidates = [];
   state.capture_diagnostics = null;
   state.analysis = null;
+  reportOpen = false;
   await saveState();
   render();
   setStatus("Candidates cleared.");
@@ -292,6 +292,7 @@ async function removeCandidate(index) {
   }
   state.candidates = state.candidates.filter((_, candidateIndex) => candidateIndex !== index);
   state.analysis = null;
+  reportOpen = false;
   await saveState();
   render();
   setStatus(`Removed candidate: ${candidate.title || "Untitled candidate"}.`);
@@ -308,6 +309,19 @@ function handleCandidateListClick(event) {
   }
 }
 
+async function handleResultsListClick(event) {
+  const button = event.target.closest("[data-copy-work-id]");
+  if (!button) {
+    return;
+  }
+  const workId = button.dataset.copyWorkId;
+  if (!workId) {
+    return;
+  }
+  await navigator.clipboard.writeText(workId);
+  setStatus(`Copied ASCAP Work ID ${workId}.`);
+}
+
 async function copyReport() {
   if (!state.analysis?.report_text) {
     setStatus("No report to copy yet.", true);
@@ -315,6 +329,15 @@ async function copyReport() {
   }
   await navigator.clipboard.writeText(state.analysis.report_text);
   setStatus("Report copied.");
+}
+
+function toggleReport() {
+  if (!state.analysis?.report_text) {
+    setStatus("No report to show yet.", true);
+    return;
+  }
+  reportOpen = !reportOpen;
+  renderReportVisibility();
 }
 
 async function checkBackendStatus() {
@@ -391,9 +414,9 @@ function render() {
             <span class="item-name">${escapeHtml(index + 1)}. ${escapeHtml(candidate.title)}</span>
             <span>${escapeHtml(candidate.source)}</span>
           </div>
-          <button class="remove-button" type="button" data-remove-candidate="${escapeHtml(index)}">Remove</button>
-          <div class="item-meta">
-            ${escapeHtml(candidate.public_work_id || "No public ID")} - ${escapeHtml(candidate.iswc || "No ISWC")}
+          <div class="item-meta item-meta--action">
+            <span>${escapeHtml(candidate.public_work_id || "No public ID")} - ${escapeHtml(candidate.iswc || "No ISWC")}</span>
+            <button class="remove-button" type="button" data-remove-candidate="${escapeHtml(index)}">Remove</button>
           </div>
           <div class="party-summary">
             <div>
@@ -412,13 +435,23 @@ function render() {
 
   if (!state.analysis) {
     elements.summaryText.textContent = "Run analysis after capturing candidates.";
+    elements.writerReferenceCard.classList.add("hidden");
+    elements.writerReferenceCard.innerHTML = "";
     elements.resultsList.innerHTML = "";
     elements.reportText.textContent = "";
+    elements.copyReportButton.disabled = true;
+    elements.toggleReportButton.disabled = true;
+    reportOpen = false;
+    renderReportVisibility();
     return;
   }
 
   elements.summaryText.textContent = state.analysis.summary;
   elements.reportText.textContent = state.analysis.report_text;
+  elements.copyReportButton.disabled = !state.analysis.report_text;
+  elements.toggleReportButton.disabled = !state.analysis.report_text;
+  renderWriterReferenceCard(state.analysis.external_writer_reference);
+  renderReportVisibility();
   elements.resultsList.innerHTML = state.analysis.results
     .map(
       (result) => `
@@ -428,6 +461,7 @@ function render() {
             <span class="score">${escapeHtml(result.confidence_score.toFixed(0))}%<br>${escapeHtml(result.confidence_label)}</span>
           </div>
           <div class="item-meta">${escapeHtml(result.candidate.source)}${formatIdentifierMetaClean(result)}</div>
+          ${renderReferenceAlignment(result)}
           ${renderRankReason(result)}
           ${renderWriterReview(result)}
           ${renderIdentifierReview(result)}
@@ -438,38 +472,88 @@ function render() {
     .join("");
 }
 
+function renderWriterReferenceCard(reference) {
+  if (!reference) {
+    elements.writerReferenceCard.classList.remove("hidden");
+    elements.writerReferenceCard.innerHTML = `
+      <div class="reference-heading">
+        <span>Public writer reference</span>
+        <strong>Skipped</strong>
+      </div>
+      <div class="muted-line">No public writer reference was used for this analysis.</div>
+    `;
+    return;
+  }
+
+  const status = reference.lookup_status || "unknown";
+  const writers = reference.writers || [];
+  const sources = reference.sources || [];
+  elements.writerReferenceCard.classList.remove("hidden");
+  elements.writerReferenceCard.innerHTML = `
+    <div class="reference-heading">
+      <span>Public writer reference</span>
+      <strong>${escapeHtml(formatReferenceStatus(status))}</strong>
+    </div>
+    ${
+      sources.length
+        ? `<div class="reference-meta">Source${sources.length === 1 ? "" : "s"}: ${escapeHtml(sources.join(", "))}</div>`
+        : `<div class="reference-meta">No source returned a usable writer set.</div>`
+    }
+    ${
+      writers.length
+        ? `<div class="reference-writers">${writers.map((writer) => `<span>${escapeHtml(writer)}</span>`).join("")}</div>`
+        : `<div class="muted-line">No public writer names were found.</div>`
+    }
+    <div class="muted-line">Advisory public metadata only. Use it to support review, not replace ASCAP verification.</div>
+  `;
+}
+
+function formatReferenceStatus(status) {
+  const labels = {
+    found: "Found",
+    not_found: "Not found",
+    skipped: "Skipped",
+  };
+  return labels[status] || "Checked";
+}
+
+function renderReferenceAlignment(result) {
+  const referenceEvidence = result.matching_evidence.some((item) => item.field === "external_writers");
+  const referenceIssues = result.discrepancies.filter((item) => item.field === "external_writers");
+
+  if (!referenceEvidence && !referenceIssues.length) {
+    return "";
+  }
+
+  if (!referenceIssues.length) {
+    return `<div class="reference-result reference-result--match">Public writer reference aligned.</div>`;
+  }
+
+  return `<div class="reference-result reference-result--warning">Public writer reference mismatch: ${escapeHtml(referenceIssues.length)} item(s).</div>`;
+}
+
+function renderReportVisibility() {
+  const hasReport = Boolean(state.analysis?.report_text);
+  elements.reportPanel.classList.toggle("hidden", !hasReport || !reportOpen);
+  elements.toggleReportButton.textContent = reportOpen ? "Hide report" : "Show report";
+  elements.toggleReportButton.setAttribute("aria-expanded", reportOpen ? "true" : "false");
+}
+
 function renderCaptureDiagnostics() {
   const diagnostics = state.capture_diagnostics;
-  if (!diagnostics) {
+  if (!diagnostics?.recovery_notes?.length) {
     elements.captureDiagnostics.classList.add("hidden");
     elements.captureDiagnostics.innerHTML = "";
     return;
   }
 
-  const parsedLines = (diagnostics.parse_details || [])
-    .map(
-      (item) => `
-        <div class="diagnostic-row">
-          <span>${escapeHtml(formatCaptureDiagnosticTitle(item))}</span>
-          <span>${escapeHtml(formatCaptureDiagnosticDetail(item))}</span>
-        </div>
-      `,
-    )
-    .join("");
   const recoveryLines = (diagnostics.recovery_notes || [])
-    .map((note) => `<div class="diagnostic-row"><span>Recovery</span><span>${escapeHtml(note)}</span></div>`)
+    .map((note) => `<div class="diagnostic-row"><span>Capture note</span><span>${escapeHtml(note)}</span></div>`)
     .join("");
 
   elements.captureDiagnostics.classList.remove("hidden");
   elements.captureDiagnostics.innerHTML = `
-    <div class="diagnostic-grid">
-      <span>Found ${escapeHtml(diagnostics.found || 0)}</span>
-      <span>Parsed ${escapeHtml(diagnostics.parsed || 0)}</span>
-      <span>Added ${escapeHtml(diagnostics.added || 0)}</span>
-      <span>Duplicates ${escapeHtml(diagnostics.duplicates || 0)}</span>
-      <span>Expand clicks ${escapeHtml(diagnostics.expand_clicks || 0)}</span>
-    </div>
-    ${parsedLines || recoveryLines ? `<div class="diagnostic-issues">${parsedLines}${recoveryLines}</div>` : ""}
+    <div class="diagnostic-issues">${recoveryLines}</div>
   `;
 }
 
@@ -515,8 +599,8 @@ function formatCaptureDiagnosticDetail(item) {
 
 function renderSearchPlan() {
   const plan = buildAscapSearchPlan(state.work);
-  if (!state.work.title?.trim()) {
-    elements.searchPlan.innerHTML = `<div class="muted-line">Enter a title to prepare ASCAP searches.</div>`;
+  if (!plan.length) {
+    elements.searchPlan.innerHTML = `<div class="muted-line">Enter any ASCAP search field to prepare a search.</div>`;
     return;
   }
 
@@ -525,8 +609,8 @@ function renderSearchPlan() {
       (item) => `
         <div class="search-chip">
           <span>${escapeHtml(item.type)}</span>
-          <strong>${escapeHtml(state.work.title.trim())}</strong>
-          ${item.term ? `<em>${escapeHtml(item.term)}</em>` : ""}
+          <strong>${escapeHtml(item.term)}</strong>
+          ${item.secondaryType ? `<em>${escapeHtml(`${item.secondaryType}: ${item.secondaryTerm}`)}</em>` : ""}
         </div>
       `,
     )
@@ -545,14 +629,20 @@ function formatIdentifierMeta(result) {
 }
 
 function formatIdentifierMetaClean(result) {
+  const workId = result.candidate.public_work_id;
   const pieces = [];
-  if (result.candidate.public_work_id) {
-    pieces.push(`ASCAP Work ID ${result.candidate.public_work_id}`);
+  if (workId) {
+    pieces.push(`
+      <span class="work-id-chip">
+        <span>ASCAP Work ID ${escapeHtml(workId)}</span>
+        <button class="copy-id-button" type="button" data-copy-work-id="${escapeHtml(workId)}">Copy ID</button>
+      </span>
+    `);
   }
   if (state.work.iswc?.trim() && result.candidate.iswc) {
-    pieces.push(`ISWC ${result.candidate.iswc}`);
+    pieces.push(`<span>ISWC ${escapeHtml(result.candidate.iswc)}</span>`);
   }
-  return pieces.length ? ` - ${escapeHtml(pieces.join(" - "))}` : "";
+  return pieces.length ? `<span class="identifier-meta"> - ${pieces.join(" - ")}</span>` : "";
 }
 
 function renderRankReason(result) {
@@ -787,41 +877,65 @@ function optional(value) {
 
 function buildAscapSearchPlan(work) {
   const title = (work.title || "").trim();
-  if (!title) {
-    return [];
-  }
-
-  if ((work.performer || "").trim()) {
-    return [{ type: "Performer", term: work.performer.trim() }];
-  }
-
+  const songCode = (work.song_code || "").trim();
+  const iswc = (work.iswc || "").trim();
+  const performer = (work.performer || "").trim();
   const writer = firstWriterSearchTerm(work.writers);
+  const publisher = firstPublisherSearchTerm(work.publishers);
+
+  if (iswc) {
+    return [{ type: "ISWC", term: iswc }];
+  }
+  if (songCode) {
+    return [{ type: "Work ID", term: songCode }];
+  }
+
+  if (title) {
+    if (performer) {
+      return [{ type: "Title", term: title, secondaryType: "Performer", secondaryTerm: performer }];
+    }
+    if (writer) {
+      return [{ type: "Title", term: title, secondaryType: "Writer", secondaryTerm: writer }];
+    }
+    if (publisher) {
+      return [{ type: "Title", term: title, secondaryType: "Publisher", secondaryTerm: publisher }];
+    }
+    return [{ type: "Title", term: title }];
+  }
+
+  if (performer) {
+    return [{ type: "Performer", term: performer }];
+  }
   if (writer) {
     return [{ type: "Writer", term: writer }];
   }
-
-  const publisher = firstPublisherSearchTerm(work.publishers);
   if (publisher) {
     return [{ type: "Publisher", term: publisher }];
   }
 
-  return [{ type: "Title", term: "" }];
+  return [];
 }
 
-function buildAscapSearchUrl(title, searchType, searchTerm) {
-  const encodedTitle = encodeURIComponent(title.trim());
-  const encodedTerm = encodeURIComponent((searchTerm || "").trim());
-  const base = `https://www.ascap.com/repertory#/ace/search/title/${encodedTitle}`;
-  if (encodedTerm && searchType === "Performer") {
-    return `${base}/performer/${encodedTerm}?at=false&searchFilter=SVW&page=1`;
+function buildAscapSearchUrl(search) {
+  const route = ascapRouteSegment(search.type);
+  const encodedTerm = encodeURIComponent(search.term.trim());
+  let url = `https://www.ascap.com/repertory#/ace/search/${route}/${encodedTerm}`;
+  if (search.secondaryType && search.secondaryTerm) {
+    url += `/${ascapRouteSegment(search.secondaryType)}/${encodeURIComponent(search.secondaryTerm.trim())}`;
   }
-  if (encodedTerm && searchType === "Writer") {
-    return `${base}/writer/${encodedTerm}?at=false&searchFilter=SVW&page=1`;
-  }
-  if (encodedTerm && searchType === "Publisher") {
-    return `${base}/publisher/${encodedTerm}?at=false&searchFilter=SVW&page=1`;
-  }
-  return `${base}?at=false&searchFilter=SVW&page=1`;
+  return `${url}?at=false&searchFilter=SVW&page=1`;
+}
+
+function ascapRouteSegment(type) {
+  const routes = {
+    Title: "title",
+    Performer: "performer",
+    Writer: "writer",
+    Publisher: "publisher",
+    "Work ID": "workId",
+    ISWC: "iswc",
+  };
+  return routes[type] || "title";
 }
 
 function firstWriterSearchTerm(value) {
@@ -901,7 +1015,7 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function fillPublicRepertoireSearch({ targetSource, title, performer, writer, publisher }) {
+function fillPublicRepertoireSearch({ targetSource, title, songCode, iswc, performer, writer, publisher }) {
   const source = targetSource.toLowerCase();
   const host = window.location.hostname.toLowerCase();
   const isAscap = host.includes("ascap.com");
@@ -912,47 +1026,74 @@ function fillPublicRepertoireSearch({ targetSource, title, performer, writer, pu
       message: "Open an ASCAP repertory tab before using Fill ASCAP search.",
     };
   }
-  return fillAscapPage(title, performer, writer, publisher);
+  return fillAscapPage(title, songCode, iswc, performer, writer, publisher);
 
-  function fillAscapPage(workTitle, workPerformer, workWriter, workPublisher) {
+  function fillAscapPage(workTitle, workSongCode, workIswc, workPerformer, workWriter, workPublisher) {
     const textInputs = visibleTextInputs();
+    const primary = chooseAscapPrimary(workTitle, workSongCode, workIswc, workPerformer, workWriter, workPublisher);
     const titleInput = findInputByNearbyText(textInputs, ["title"]) || textInputs[0];
-    const secondary = chooseAscapSecondary(workPerformer, workWriter, workPublisher);
-    const secondaryInput =
-      findInputByNearbyText(textInputs, [
-        secondary.type.toLowerCase(),
-        "performer",
-        "writer",
-        "publisher",
-        "artist",
-      ]) ||
-      textInputs.find((input) => input !== titleInput);
 
-    if (!titleInput) {
+    if (!primary.term || !titleInput) {
       return {
         ok: false,
-        message: "Could not find ASCAP title input. Open the ASCAP repertory search page first.",
+        message: "Could not find an ASCAP search input. Open the ASCAP repertory search page first.",
       };
     }
 
-    setNativeValue(titleInput, workTitle.trim());
-    if (secondary.term && secondaryInput) {
+    setNativeValue(titleInput, primary.term);
+    setSelectNearInput(titleInput, primary.type);
+
+    const secondary = chooseAscapSecondary(primary.type, workPerformer, workWriter, workPublisher);
+    const secondaryInput =
+      primary.type === "Title"
+        ? findInputByNearbyText(textInputs, [
+            secondary.type.toLowerCase(),
+            "performer",
+            "writer",
+            "publisher",
+            "artist",
+          ]) || textInputs.find((input) => input !== titleInput)
+        : null;
+
+    if (primary.type === "Title" && secondary.term && secondaryInput) {
       setNativeValue(secondaryInput, secondary.term);
-    }
-    setSelectNearInput(titleInput, "Title");
-    if (secondaryInput) {
       setSelectNearInput(secondaryInput, secondary.type);
     }
 
     return {
       ok: true,
-      message: secondary.term
+      message: primary.type === "Title" && secondary.term
         ? `Filled ASCAP title and ${secondary.type.toLowerCase()} fields. Review them, then click Search.`
-        : "Filled ASCAP title field. Review it, then click Search.",
+        : `Filled ASCAP ${primary.type.toLowerCase()} search. Review it, then click Search.`,
     };
   }
 
-  function chooseAscapSecondary(workPerformer, workWriter, workPublisher) {
+  function chooseAscapPrimary(workTitle, workSongCode, workIswc, workPerformer, workWriter, workPublisher) {
+    if ((workIswc || "").trim()) {
+      return { type: "ISWC", term: workIswc.trim() };
+    }
+    if ((workSongCode || "").trim()) {
+      return { type: "Work ID", term: workSongCode.trim() };
+    }
+    if ((workTitle || "").trim()) {
+      return { type: "Title", term: workTitle.trim() };
+    }
+    if ((workPerformer || "").trim()) {
+      return { type: "Performer", term: workPerformer.trim() };
+    }
+    if ((workWriter || "").trim()) {
+      return { type: "Writer", term: workWriter.trim() };
+    }
+    if ((workPublisher || "").trim()) {
+      return { type: "Publisher", term: workPublisher.trim() };
+    }
+    return { type: "Title", term: "" };
+  }
+
+  function chooseAscapSecondary(primaryType, workPerformer, workWriter, workPublisher) {
+    if (primaryType !== "Title") {
+      return { type: "Performer", term: "" };
+    }
     if ((workPerformer || "").trim()) {
       return { type: "Performer", term: workPerformer.trim() };
     }
