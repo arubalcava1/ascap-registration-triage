@@ -2,7 +2,6 @@ const API_BASE = "http://127.0.0.1:8000";
 const STORAGE_KEY = "ascapTriageExtensionState";
 
 const elements = {
-  saveWorkButton: document.querySelector("#saveWorkButton"),
   titleInput: document.querySelector("#titleInput"),
   songCodeInput: document.querySelector("#songCodeInput"),
   iswcInput: document.querySelector("#iswcInput"),
@@ -11,7 +10,6 @@ const elements = {
   publishersInput: document.querySelector("#publishersInput"),
   openAscapButton: document.querySelector("#openAscapButton"),
   fillAscapButton: document.querySelector("#fillAscapButton"),
-  searchPlan: document.querySelector("#searchPlan"),
   captureButton: document.querySelector("#captureButton"),
   clearCandidatesButton: document.querySelector("#clearCandidatesButton"),
   analyzeButton: document.querySelector("#analyzeButton"),
@@ -55,7 +53,6 @@ async function init() {
 }
 
 function bindEvents() {
-  elements.saveWorkButton.addEventListener("click", saveWorkFromInputs);
   elements.openAscapButton.addEventListener("click", openAscapSearch);
   elements.fillAscapButton.addEventListener("click", fillAscapSearch);
   elements.captureButton.addEventListener("click", captureCurrentTab);
@@ -74,7 +71,8 @@ function bindEvents() {
     elements.writersInput,
     elements.publishersInput,
   ].forEach((input) => {
-    input.addEventListener("change", saveWorkFromInputs);
+    input.addEventListener("input", () => saveWorkFromInputs({ quiet: true }));
+    input.addEventListener("change", () => saveWorkFromInputs({ quiet: true }));
   });
 }
 
@@ -87,7 +85,7 @@ async function saveState() {
   await chrome.storage.local.set({ [STORAGE_KEY]: state });
 }
 
-function saveWorkFromInputs() {
+function saveWorkFromInputs({ quiet = false } = {}) {
   state.work = {
     title: elements.titleInput.value,
     song_code: elements.songCodeInput.value,
@@ -97,8 +95,10 @@ function saveWorkFromInputs() {
     publishers: elements.publishersInput.value,
   };
   saveState();
-  render();
-  setStatus("Work metadata saved.");
+  if (!quiet) {
+    render();
+    setStatus("Work metadata saved.");
+  }
 }
 
 async function openAscapSearch() {
@@ -403,7 +403,6 @@ function render() {
       ? "No candidates captured."
       : `Ready: ${state.candidates.length} ASCAP candidate(s) captured.`;
   elements.analyzeButton.disabled = state.candidates.length === 0;
-  renderSearchPlan();
   renderCaptureDiagnostics();
 
   elements.candidateList.innerHTML = state.candidates
@@ -595,26 +594,6 @@ function formatCaptureDiagnosticDetail(item) {
   const parsedFields = item.parsed_fields?.length ? `Parsed: ${item.parsed_fields.join(", ")}` : "No fields parsed";
   const warnings = item.warnings?.length ? ` Warnings: ${item.warnings.join(" ")}` : "";
   return `${parsedFields}.${warnings}`;
-}
-
-function renderSearchPlan() {
-  const plan = buildAscapSearchPlan(state.work);
-  if (!plan.length) {
-    elements.searchPlan.innerHTML = `<div class="muted-line">Enter any ASCAP search field to prepare a search.</div>`;
-    return;
-  }
-
-  elements.searchPlan.innerHTML = plan
-    .map(
-      (item) => `
-        <div class="search-chip">
-          <span>${escapeHtml(item.type)}</span>
-          <strong>${escapeHtml(item.term)}</strong>
-          ${item.secondaryType ? `<em>${escapeHtml(`${item.secondaryType}: ${item.secondaryTerm}`)}</em>` : ""}
-        </div>
-      `,
-    )
-    .join("");
 }
 
 function formatIdentifierMeta(result) {

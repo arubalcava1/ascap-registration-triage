@@ -176,7 +176,7 @@ select {
 }
 
 textarea {
-  min-height: 70px;
+  min-height: 58px;
   resize: vertical;
 }
 
@@ -193,51 +193,8 @@ select:focus {
   gap: 10px;
 }
 
-.search-plan {
-  display: grid;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.search-chip {
-  display: grid;
-  grid-template-columns: 68px 1fr;
-  gap: 4px 8px;
-  align-items: center;
-  border: 1px solid rgba(148, 163, 184, 0.14);
-  border-radius: 6px;
-  background: var(--surface-2);
-  padding: 7px 8px;
-  font-size: 11px;
-}
-
-.search-chip span {
-  color: var(--subtle);
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.search-chip strong,
-.search-chip em {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text);
-  font-style: normal;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.search-chip em {
-  grid-column: 2;
-  color: var(--primary-strong);
-}
-
-.single-action {
-  grid-template-columns: 1fr;
-}
-
-.compact-actions {
-  margin-top: 8px;
+.search-actions {
+  margin-top: 12px;
 }
 
 .primary-button,

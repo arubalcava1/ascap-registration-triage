@@ -33,6 +33,16 @@ def maybe_lookup_external_writer_reference(
     reference = lookup_external_writer_reference(ascap_work)
     if not reference.writers:
         return reference
+    if not _reference_matches_entered_writer_context(ascap_work, reference):
+        return WriterReference(
+            writers=[],
+            sources=reference.sources,
+            status="not_found",
+            note=(
+                "Public writer reference was ignored because it did not match the writer "
+                "context entered for this ASCAP search."
+            ),
+        )
     return reference
 
 
@@ -129,6 +139,20 @@ def _should_lookup(ascap_work: AscapWork, candidates: list[CandidateWork]) -> bo
         return False
     entered_writer_names = normalized_party_names(ascap_work.writers)
     return len(entered_writer_names) <= 1
+
+
+def _reference_matches_entered_writer_context(
+    ascap_work: AscapWork,
+    reference: WriterReference,
+) -> bool:
+    entered_writer_names = normalized_party_names(ascap_work.writers)
+    if not entered_writer_names:
+        return True
+
+    return any(
+        _best_name_similarity(entered_writer_name, reference.writers) >= NAME_MATCH_THRESHOLD
+        for entered_writer_name in entered_writer_names
+    )
 
 
 def _lookup_wikidata_writers(ascap_work: AscapWork) -> tuple[list[str], str]:

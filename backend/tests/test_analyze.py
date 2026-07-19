@@ -427,6 +427,78 @@ def test_external_writer_reference_ranks_complete_ascap_work_first(monkeypatch) 
     assert "External Writer Reference" in data["report_text"]
 
 
+def test_external_writer_reference_ignored_when_it_misses_entered_writer(monkeypatch) -> None:
+    def fake_lookup(ascap_work):
+        return WriterReference(
+            writers=["Trey Anastasio", "Tom Marshall"],
+            sources=["MusicBrainz"],
+            status="found",
+            note="Wrong same-title reference.",
+        )
+
+    monkeypatch.setattr(
+        "app.services.writer_reference.lookup_external_writer_reference",
+        fake_lookup,
+    )
+
+    payload = {
+        "ascap_work": {
+            "title": "PART II",
+            "song_code": None,
+            "iswc": None,
+            "alternate_titles": [],
+            "writers": [{"name": "Williams", "ipi_cae": None, "share": None}],
+            "publishers": [],
+            "source_url": None,
+            "notes": None,
+        },
+        "candidates": [
+            {
+                "source": "ASCAP Repertory",
+                "title": "PART II",
+                "public_work_id": "885004118",
+                "iswc": None,
+                "alternate_titles": [],
+                "writers": [
+                    {"name": "MELDAL-JOHNSEN JUSTIN", "ipi_cae": None, "share": None},
+                    {"name": "WILLIAMS HAYLEY NICHOLE", "ipi_cae": None, "share": None},
+                    {"name": "YORK TAYLOR BENJAMIN", "ipi_cae": None, "share": None},
+                ],
+                "publishers": [],
+                "status": None,
+                "source_url": None,
+                "raw_notes": None,
+            },
+            {
+                "source": "ASCAP Repertory",
+                "title": "PART II",
+                "public_work_id": "wrong-reference-work",
+                "iswc": None,
+                "alternate_titles": [],
+                "writers": [
+                    {"name": "TREY ANASTASIO", "ipi_cae": None, "share": None},
+                    {"name": "TOM MARSHALL", "ipi_cae": None, "share": None},
+                ],
+                "publishers": [],
+                "status": None,
+                "source_url": None,
+                "raw_notes": None,
+            },
+        ],
+    }
+
+    response = client.post("/api/analyze", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["external_writer_reference"]["lookup_status"] == "not_found"
+    assert data["external_writer_reference"]["writers"] == []
+    assert data["top_result"]["candidate"]["public_work_id"] == "885004118"
+    top_discrepancy_types = {item["type"] for item in data["top_result"]["discrepancies"]}
+    assert "missing_reference_writer" not in top_discrepancy_types
+    assert "extra_reference_writer" not in top_discrepancy_types
+
+
 def test_split_style_input_no_longer_drives_share_scoring() -> None:
     payload = _payload()
 
