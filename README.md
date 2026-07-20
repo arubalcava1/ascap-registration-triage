@@ -8,7 +8,7 @@ It is not an official ASCAP product. It does not access ASCAP private systems, d
 
 ## Project Team
 
-**Andrew Rubalcava — Lead Developer**
+**Andrew Rubalcava [LinkedIn](https://www.linkedin.com/in/andrewrubalcava1/) — Lead Developer**
 Responsible for technical architecture, application development, implementation, testing, and AI-assisted development workflows.
 
 **Ysabel Rosas [LinkedIn](https://www.linkedin.com/in/ysabelrosas/) — Product Owner & Domain Expert**
