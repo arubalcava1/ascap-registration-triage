@@ -6,6 +6,15 @@ The extension helps a user enter ASCAP search clues, open ASCAP public repertoir
 
 It is not an official ASCAP product. It does not access ASCAP private systems, determine legal ownership, calculate royalties, or fix registrations.
 
+## Project Team
+
+**Andrew Rubalcava — Lead Developer**
+Responsible for technical architecture, application development, implementation, testing, and AI-assisted development workflows.
+
+**Ysabel Rosas [LinkedIn](https://www.linkedin.com/in/ysabelrosas/) — Product Owner & Domain Expert**
+Originated the product vision and provided domain expertise around music rights and registration workflows. Responsible for defining product requirements, validating workflows, reviewing functionality, and providing domain-specific feedback throughout development.
+
+
 ## Current Direction
 
 This project is now **extension-first**.

@@ -1,4 +1,31 @@
 const STORAGE_KEY = "ascapTriageExtensionState";
+const REFERENCE_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const MUSICBRAINZ_REQUEST_INTERVAL_MS = 1100;
+const WIKIMEDIA_REQUEST_INTERVAL_MS = 250;
+const WIKIMEDIA_API_USER_AGENT = "ASCAPRegistrationTriage/0.2 (Chrome extension; public ASCAP metadata triage)";
+
+function createRequestLimiter(intervalMs) {
+  let nextRequestAt = 0;
+  return async function limitRequest() {
+    const now = Date.now();
+    const waitMs = Math.max(0, nextRequestAt - now);
+    nextRequestAt = Math.max(now, nextRequestAt) + intervalMs;
+    if (waitMs > 0) {
+      await delay(waitMs);
+    }
+  };
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const referenceFetchCache = new Map();
+const referenceRequestLimiters = {
+  musicbrainz: createRequestLimiter(MUSICBRAINZ_REQUEST_INTERVAL_MS),
+  wikimedia: createRequestLimiter(WIKIMEDIA_REQUEST_INTERVAL_MS),
+  generic: createRequestLimiter(0),
+};
 
 const elements = {
   titleInput: document.querySelector("#titleInput"),
@@ -1291,7 +1318,7 @@ async function lookupMusicBrainzWriters(title, ascapWork) {
   for (const query of queries) {
     try {
       const url = `https://musicbrainz.org/ws/2/recording?query=${encodeURIComponent(query)}&fmt=json&limit=5`;
-      const data = await fetchJson(url);
+      const data = await fetchJson(url, { source: "musicbrainz" });
       const recordings = data?.recordings || [];
       for (const recording of recordings) {
         if (!looksLikeTitleMatch(title, recording.title || "")) continue;
@@ -1307,13 +1334,13 @@ async function lookupMusicBrainzWriters(title, ascapWork) {
 
 async function musicBrainzRecordingWriters(recordingId) {
   try {
-    const data = await fetchJson(`https://musicbrainz.org/ws/2/recording/${encodeURIComponent(recordingId)}?inc=work-rels&fmt=json`);
+    const data = await fetchJson(`https://musicbrainz.org/ws/2/recording/${encodeURIComponent(recordingId)}?inc=work-rels&fmt=json`, { source: "musicbrainz" });
     const workIds = (data?.relations || [])
       .filter((relation) => relation.type === "performance" && relation.work?.id)
       .map((relation) => relation.work.id);
     const writers = [];
     for (const workId of workIds.slice(0, 3)) {
-      const work = await fetchJson(`https://musicbrainz.org/ws/2/work/${encodeURIComponent(workId)}?inc=artist-rels&fmt=json`);
+      const work = await fetchJson(`https://musicbrainz.org/ws/2/work/${encodeURIComponent(workId)}?inc=artist-rels&fmt=json`, { source: "musicbrainz" });
       (work?.relations || []).forEach((relation) => {
         if (["writer", "composer", "lyricist"].includes(relation.type) && relation.artist?.name) writers.push(relation.artist.name);
       });
@@ -1328,16 +1355,16 @@ async function lookupWikidataWriters(title, ascapWork) {
   const writerHints = normalizedPartyNames(ascapWork.writers).map((name) => `"${name}"`).join(" ");
   const search = `${title} song ${ascapWork.performer || writerHints}`.trim();
   try {
-    const searchData = await fetchJson(`https://www.wikidata.org/w/rest.php/wikibase/v0/search/entities?search=${encodeURIComponent(search)}&language=en&limit=5`);
+    const searchData = await fetchJson(`https://www.wikidata.org/w/rest.php/wikibase/v0/search/entities?search=${encodeURIComponent(search)}&language=en&limit=5`, { source: "wikimedia" });
     for (const item of searchData?.search || []) {
-      const entity = await fetchJson(`https://www.wikidata.org/wiki/Special:EntityData/${encodeURIComponent(item.id)}.json`);
+      const entity = await fetchJson(`https://www.wikidata.org/wiki/Special:EntityData/${encodeURIComponent(item.id)}.json`, { source: "wikimedia" });
       const claims = entity?.entities?.[item.id]?.claims || {};
       const ids = [...(claims.P86 || []), ...(claims.P676 || []), ...(claims.P162 || [])]
         .map((claim) => claim.mainsnak?.datavalue?.value?.id)
         .filter(Boolean);
       const names = [];
       for (const id of ids.slice(0, 12)) {
-        const nameData = await fetchJson(`https://www.wikidata.org/wiki/Special:EntityData/${encodeURIComponent(id)}.json`);
+        const nameData = await fetchJson(`https://www.wikidata.org/wiki/Special:EntityData/${encodeURIComponent(id)}.json`, { source: "wikimedia" });
         const label = nameData?.entities?.[id]?.labels?.en?.value;
         if (label) names.push(label);
       }
@@ -1357,10 +1384,10 @@ async function lookupWikipediaWriters(title, ascapWork) {
   ]);
   for (const term of terms) {
     try {
-      const search = await fetchJson(`https://en.wikipedia.org/w/rest.php/v1/search/page?q=${encodeURIComponent(term)}&limit=5`);
+      const search = await fetchJson(`https://en.wikipedia.org/w/rest.php/v1/search/page?q=${encodeURIComponent(term)}&limit=5`, { source: "wikimedia" });
       for (const page of search?.pages || []) {
         if (!looksLikeTitleMatch(title, page.title || "")) continue;
-        const wikitext = await fetchJson(`https://en.wikipedia.org/w/api.php?action=query&prop=revisions&rvprop=content&rvslots=main&format=json&origin=*&titles=${encodeURIComponent(page.title)}`);
+        const wikitext = await fetchJson(`https://en.wikipedia.org/w/api.php?action=query&prop=revisions&rvprop=content&rvslots=main&format=json&origin=*&titles=${encodeURIComponent(page.title)}`, { source: "wikimedia" });
         const pages = Object.values(wikitext?.query?.pages || {});
         const content = pages[0]?.revisions?.[0]?.slots?.main?.["*"] || "";
         const writers = splitWikipediaNames(infoboxField(content, "writer") || infoboxField(content, "composer"));
@@ -1673,14 +1700,29 @@ function splitWikipediaNames(value) {
     .filter((name) => name && name.length < 80 && !/^\d+$/.test(name));
 }
 
-async function fetchJson(url) {
+async function fetchJson(url, { source = "generic" } = {}) {
+  const cached = referenceFetchCache.get(url);
+  const now = Date.now();
+  if (cached && now - cached.timestamp < REFERENCE_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  await (referenceRequestLimiters[source] || referenceRequestLimiters.generic)();
+
+  const headers = {
+    Accept: "application/json",
+  };
+  if (source === "wikimedia") {
+    headers["Api-User-Agent"] = WIKIMEDIA_API_USER_AGENT;
+  }
+
   const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-    },
+    headers,
   });
   if (!response.ok) throw new Error(`Reference request failed with status ${response.status}`);
-  return response.json();
+  const data = await response.json();
+  referenceFetchCache.set(url, { data, timestamp: Date.now() });
+  return data;
 }
 
 function partyNames(parties = []) {

@@ -37,3 +37,9 @@ The extension does not collect, store, or transmit:
 Users choose when to open ASCAP searches, fill ASCAP fields, capture visible ASCAP results, clear candidates, copy reports, and copy Work IDs.
 
 Public writer reference data is advisory only. It supports review and does not replace ASCAP verification.
+
+## Limited Use
+
+Information handled by ASCAP Registration Triage is used only to provide and improve the extension’s stated metadata-triage features. It is not sold, used for advertising, used to determine creditworthiness, or transferred for unrelated purposes. Any transfer to ASCAP, MusicBrainz, Wikidata, or Wikipedia occurs only as necessary to provide a feature requested by the user.
+
+The use of information received from Google APIs will adhere to the Chrome Web Store User Data Policy, including the Limited Use requirements.
