@@ -1,3 +1,7 @@
+# ASCAP Registration Triage Extension Download
+
+https://chromewebstore.google.com/detail/ascap-registration-triage/iikkbdbpkljjaokcnfklbgpjnhnklagj?authuser=0&hl=en
+
 # ASCAP Registration Triage
 
 ASCAP Registration Triage is an independent Chrome extension for reviewing possible ASCAP public repertoire matches.
