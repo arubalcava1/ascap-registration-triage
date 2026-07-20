@@ -209,37 +209,6 @@ textarea {
     inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 
-.backend-status {
-  flex: 0 0 auto;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 5px 8px;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.backend-status--connected {
-  border-color: color-mix(in srgb, var(--primary) 38%, transparent);
-  background: color-mix(in srgb, var(--primary) 10%, transparent);
-  color: var(--primary-strong);
-}
-
-.backend-status--error {
-  border-color: rgba(251, 138, 160, 0.34);
-  background: rgba(251, 138, 160, 0.08);
-  color: #ffc3ce;
-}
-
-.backend-status--checking {
-  border-color: rgba(247, 200, 115, 0.3);
-  background: rgba(247, 200, 115, 0.08);
-  color: var(--warning);
-}
-
 .eyebrow,
 label span {
   color: var(--subtle);
@@ -284,15 +253,8 @@ p {
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 
-.app-title .backend-status {
-  justify-self: start;
-}
-
 .title-controls {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 10px;
+  display: block;
 }
 
 .theme-control {

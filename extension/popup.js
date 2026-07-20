@@ -24,7 +24,6 @@ const elements = {
   reportPanel: document.querySelector("#reportPanel"),
   reportText: document.querySelector("#reportText"),
   statusMessage: document.querySelector("#statusMessage"),
-  backendStatus: document.querySelector("#backendStatus"),
 };
 
 let state = {
@@ -50,7 +49,6 @@ async function init() {
   await loadState();
   bindEvents();
   render();
-  setBackendStatus("connected", "Runs in Chrome");
 }
 
 function bindEvents() {
@@ -351,13 +349,6 @@ function toggleReport() {
   }
   reportOpen = !reportOpen;
   renderReportVisibility();
-}
-
-function setBackendStatus(status, label) {
-  elements.backendStatus.textContent = label;
-  elements.backendStatus.classList.toggle("backend-status--checking", status === "checking");
-  elements.backendStatus.classList.toggle("backend-status--connected", status === "connected");
-  elements.backendStatus.classList.toggle("backend-status--error", status === "error");
 }
 
 function buildAscapWork() {
@@ -963,7 +954,7 @@ function partyFromLine(line) {
     .replace(/\(?\b\d+(?:\.\d+)?\s*%\)?/g, "")
     .replace(/\b(?:BMI|ASCAP|SESAC|GMR)\b/g, "")
     .replace(/\bshare\b/gi, "")
-    .replace(/\b0\d{7,10}\b/g, "")
+    .replace(/\b\d{6,}\b/g, "")
     .replace(/\s+[-|]\s*$/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -1070,7 +1061,7 @@ async function analyzeCandidatesLocally(ascapWork, candidates) {
     ? {
         lookup_status: writerReference.lookup_status,
         sources: writerReference.sources,
-        writers: writerReference.writers,
+        writers: uniqueNames(writerReference.writers),
         notes: writerReference.notes || null,
       }
     : null;
@@ -1151,7 +1142,7 @@ function scorePartyNameOverlap(ascapParties, candidateParties, publisher = false
 
 function scoreReferenceWriterMatch(candidate, writerReference) {
   const { matched, missing, extra } = candidateReferenceMatches(candidate, writerReference);
-  const expectedCount = writerReference.writers.length || 1;
+  const expectedCount = uniqueNames(writerReference.writers).length || 1;
   const candidateCount = normalizedPartyNames(candidate.writers).length || 1;
   const recall = matched.length / expectedCount;
   const precision = Math.max(0, 1 - extra.length / candidateCount);
@@ -1162,7 +1153,7 @@ function scoreReferenceWriterMatch(candidate, writerReference) {
 function writerSetPenalty(ascapWork, candidate, writerReference) {
   if (writerReference?.writers?.length) {
     const { missing, extra } = candidateReferenceMatches(candidate, writerReference);
-    return (missing.length / Math.max(writerReference.writers.length, 1)) * 55 + (extra.length / Math.max(candidate.writers.length, 1)) * 50;
+    return (missing.length / Math.max(uniqueNames(writerReference.writers).length, 1)) * 55 + (extra.length / Math.max(candidate.writers.length, 1)) * 50;
   }
   const ascapNames = normalizedPartyNames(ascapWork.writers);
   const candidateNames = normalizedPartyNames(candidate.writers);
@@ -1423,11 +1414,12 @@ function referenceMatchesEnteredWriterContext(ascapWork, referenceWriters) {
 function candidateReferenceMatches(candidate, writerReference) {
   const candidateWriters = displayWriterNames(candidate);
   const normalizedCandidates = candidateWriters.map(normalizeName);
+  const referenceWriters = uniqueNames(writerReference.writers);
   const matched = [];
   const missing = [];
   const extra = [];
   const matchedCandidateIndexes = new Set();
-  writerReference.writers.forEach((writer) => {
+  referenceWriters.forEach((writer) => {
     const match = bestNameMatch(normalizeName(writer), normalizedCandidates, matchedCandidateIndexes);
     if (match.score >= 0.88) {
       matched.push(writer);
@@ -1438,7 +1430,7 @@ function candidateReferenceMatches(candidate, writerReference) {
   });
   candidateWriters.forEach((writer, index) => {
     if (matchedCandidateIndexes.has(index)) return;
-    if (bestLocalNameSimilarity(normalizeName(writer), writerReference.writers.map(normalizeName)) < 0.88) extra.push(writer);
+    if (bestLocalNameSimilarity(normalizeName(writer), referenceWriters.map(normalizeName)) < 0.88) extra.push(writer);
   });
   return { matched, missing, extra };
 }
@@ -1539,7 +1531,11 @@ function normalizeTitle(value) {
 }
 
 function normalizeName(value) {
-  return normalizeTextBasic(value);
+  const noiseTokens = new Set(["ascap", "bmi", "gmr", "sesac", "pro", "ipi", "cae"]);
+  return normalizeTextBasic(value)
+    .split(" ")
+    .filter((token) => token && !noiseTokens.has(token) && !/^\d{6,}$/.test(token))
+    .join(" ");
 }
 
 function normalizePublisherName(value) {
@@ -1576,12 +1572,13 @@ function localNameSimilarity(left, right) {
   if (isSubset(leftTokens, rightTokens) || isSubset(rightTokens, leftTokens)) return 1;
   const sharedDistinctive = [...leftTokens].filter((token) => token.length >= 3 && rightTokens.has(token)).length;
   if (sharedDistinctive >= 2) return 1;
+  if (hasDistinctiveSurnameOverlap(leftTokens, rightTokens)) return 0.95;
   return tokenSortRatio(normalizeName(left), normalizeName(right));
 }
 
 function tokenSortRatio(left, right) {
-  const leftTokens = normalizeTextBasic(left).split(" ").filter(Boolean).sort();
-  const rightTokens = normalizeTextBasic(right).split(" ").filter(Boolean).sort();
+  const leftTokens = normalizeName(left).split(" ").filter(Boolean).sort();
+  const rightTokens = normalizeName(right).split(" ").filter(Boolean).sort();
   if (!leftTokens.length || !rightTokens.length) return 0;
   if (leftTokens.join(" ") === rightTokens.join(" ")) return 1;
   const shared = leftTokens.filter((token) => rightTokens.includes(token)).length;
@@ -1615,7 +1612,11 @@ function levenshteinDistance(left, right) {
 }
 
 function tokenSet(value) {
-  return new Set(String(value || "").split(/\s+/).filter((token) => token.length > 1));
+  return new Set(normalizeName(value).split(/\s+/).filter((token) => token.length > 1));
+}
+
+function hasDistinctiveSurnameOverlap(leftTokens, rightTokens) {
+  return [...leftTokens].some((token) => token.length >= 4 && rightTokens.has(token));
 }
 
 function lowMatchRatio(sourceNames, targetNames) {
@@ -1623,7 +1624,9 @@ function lowMatchRatio(sourceNames, targetNames) {
 }
 
 function displayWriterNames(candidate) {
-  return (candidate.writers || []).map((party) => party.name).filter(Boolean);
+  return (candidate.writers || [])
+    .map((party) => String(party.name || "").replace(/\b\d{6,}\b/g, "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
 }
 
 function average(values) {

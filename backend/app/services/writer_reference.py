@@ -128,11 +128,12 @@ def candidate_reference_matches(
         return [], [], []
 
     candidate_writers = normalized_party_names(candidate.writers)
+    reference_writers = _unique_names(reference.writers)
     matched: list[str] = []
     missing: list[str] = []
     used_candidate_indexes: set[int] = set()
 
-    for reference_writer in reference.writers:
+    for reference_writer in reference_writers:
         best_index = -1
         best_score = 0.0
         for index, candidate_writer in enumerate(candidate_writers):
@@ -152,7 +153,7 @@ def candidate_reference_matches(
     for index, candidate_writer in enumerate(candidate_writers):
         if index in used_candidate_indexes:
             continue
-        if _best_name_similarity(candidate_writer, reference.writers) < NAME_MATCH_THRESHOLD:
+        if _best_name_similarity(candidate_writer, reference_writers) < NAME_MATCH_THRESHOLD:
             extra.append(candidate.writers[index].name)
 
     return matched, missing, extra
@@ -681,7 +682,7 @@ def _compact_name_similarity(left: str, right: str) -> float:
 
 
 def _name_tokens(value: str) -> set[str]:
-    return {token for token in value.lower().split() if len(token) > 1}
+    return {token for token in normalize_name(value).split() if len(token) > 1}
 
 
 def _distinctive_last_name_match(left_tokens: set[str], right_tokens: set[str]) -> bool:

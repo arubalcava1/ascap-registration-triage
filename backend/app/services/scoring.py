@@ -177,7 +177,7 @@ def _score_party_name_overlap(ascap_parties, candidate_parties, *, publisher: bo
 
 def _score_reference_writer_match(candidate: CandidateWork, writer_reference: WriterReference) -> float:
     matched, missing, extra = candidate_reference_matches(candidate, writer_reference)
-    expected_count = len(writer_reference.writers)
+    expected_count = _unique_normalized_count(writer_reference.writers)
     candidate_count = len(normalized_party_names(candidate.writers))
     if expected_count == 0 or candidate_count == 0:
         return 0.0
@@ -195,7 +195,7 @@ def _writer_set_penalty(
 ) -> float:
     if writer_reference and writer_reference.writers:
         _, missing_reference_writers, extra_reference_writers = candidate_reference_matches(candidate, writer_reference)
-        expected_count = max(len(writer_reference.writers), 1)
+        expected_count = max(_unique_normalized_count(writer_reference.writers), 1)
         candidate_count = max(len(candidate.writers), 1)
         return (len(missing_reference_writers) / expected_count * 55.0) + (
             len(extra_reference_writers) / candidate_count * 50.0
@@ -227,6 +227,15 @@ def _best_name_similarity(name: str, candidates: list[str]) -> float:
     return max(_name_similarity(name, candidate) for candidate in candidates)
 
 
+def _unique_normalized_count(names: list[str]) -> int:
+    unique: list[str] = []
+    for name in names:
+        normalized = normalize_compact_text(name)
+        if normalized and normalized not in unique:
+            unique.append(normalized)
+    return len(unique)
+
+
 def _name_similarity(left: str, right: str) -> float:
     compact_score = _compact_name_similarity(left, right)
     if compact_score:
@@ -240,6 +249,8 @@ def _name_similarity(left: str, right: str) -> float:
         return 1.0
     if _shared_distinctive_tokens_match(left_tokens, right_tokens):
         return 1.0
+    if _distinctive_surname_overlap(left_tokens, right_tokens):
+        return 0.95
     return fuzz.token_sort_ratio(left, right) / 100
 
 
@@ -266,6 +277,10 @@ def _name_tokens(value: str) -> set[str]:
 def _shared_distinctive_tokens_match(left_tokens: set[str], right_tokens: set[str]) -> bool:
     shared_tokens = {token for token in left_tokens & right_tokens if len(token) >= 3}
     return len(shared_tokens) >= 2
+
+
+def _distinctive_surname_overlap(left_tokens: set[str], right_tokens: set[str]) -> bool:
+    return any(len(token) >= 4 for token in left_tokens & right_tokens)
 
 
 def _add_evidence(

@@ -271,6 +271,8 @@ def _name_similarity(left: str, right: str) -> float:
         return 100.0
     if _shared_distinctive_tokens_match(left_tokens, right_tokens):
         return 100.0
+    if _distinctive_surname_overlap(left_tokens, right_tokens):
+        return 95.0
     return float(fuzz.token_sort_ratio(left, right))
 
 
@@ -295,6 +297,8 @@ def _is_token_subset_match(left: str, right: str) -> bool:
     right_tokens = _name_tokens(right)
     if left_tokens and right_tokens and (left_tokens <= right_tokens or right_tokens <= left_tokens):
         return True
+    if _distinctive_surname_overlap(left_tokens, right_tokens):
+        return True
     return bool(_compact_name_similarity(left, right))
 
 
@@ -305,3 +309,7 @@ def _name_tokens(value: str) -> set[str]:
 def _shared_distinctive_tokens_match(left_tokens: set[str], right_tokens: set[str]) -> bool:
     shared_tokens = {token for token in left_tokens & right_tokens if len(token) >= 3}
     return len(shared_tokens) >= 2
+
+
+def _distinctive_surname_overlap(left_tokens: set[str], right_tokens: set[str]) -> bool:
+    return any(len(token) >= 4 for token in left_tokens & right_tokens)

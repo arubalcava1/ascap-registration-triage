@@ -19,6 +19,16 @@ BUSINESS_SUFFIXES = {
     "pubs",
 }
 
+NAME_NOISE_TOKENS = {
+    "ascap",
+    "bmi",
+    "gmr",
+    "sesac",
+    "pro",
+    "ipi",
+    "cae",
+}
+
 
 def normalize_text(value: str | None) -> str:
     if not value:
@@ -52,7 +62,12 @@ def normalize_title(title: str | None) -> str:
 
 
 def normalize_name(name: str | None) -> str:
-    return normalize_text(name)
+    words = [
+        word
+        for word in normalize_text(name).split()
+        if word not in NAME_NOISE_TOKENS and not re.fullmatch(r"\d{6,}", word)
+    ]
+    return " ".join(words)
 
 
 def normalize_publisher_name(name: str | None) -> str:

@@ -22,18 +22,17 @@ cd ..
 
 1. Open `chrome://extensions`.
 2. Reload the unpacked extension.
-3. Confirm the popup says `Runs in Chrome`.
-4. Enter a test ASCAP work title and writer.
-5. Click `Open ASCAP searches`.
-6. Confirm ASCAP opens to the expected public search URL.
-7. Click `Fill ASCAP search` on an ASCAP search page if the fields need help.
-8. Run the ASCAP search manually.
-9. Click `Capture and analyze` on the results page.
-10. Confirm candidates appear.
-11. Confirm ranked results appear.
-12. Confirm `Copy ID` copies the ASCAP Work ID.
-13. Confirm `Show report` opens the optional report and `Copy report` works.
-14. Switch each theme and reopen the popup to confirm the theme persists.
+3. Enter a test ASCAP work title and writer.
+4. Click `Open ASCAP searches`.
+5. Confirm ASCAP opens to the expected public search URL.
+6. Click `Fill ASCAP search` on an ASCAP search page if the fields need help.
+7. Run the ASCAP search manually.
+8. Click `Capture and analyze` on the results page.
+9. Confirm candidates appear.
+10. Confirm ranked results appear.
+11. Confirm `Copy ID` copies the ASCAP Work ID.
+12. Confirm `Show report` opens the optional report and `Copy report` works.
+13. Switch each theme and reopen the popup to confirm the theme persists.
 
 ## Build The Zip
 

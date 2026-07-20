@@ -107,9 +107,9 @@ def test_blank_user_identifiers_are_not_matching_criteria() -> None:
                 "iswc": "T0709421237",
                 "alternate_titles": [],
                 "writers": [
-                    {"name": "GAUGH FLOYD I", "ipi_cae": None, "share": None},
-                    {"name": "NOWELL BRADLEY JAMES", "ipi_cae": None, "share": None},
-                    {"name": "WILSON ERIC JOHN", "ipi_cae": None, "share": None},
+                    {"name": "GAUGH FLOYD I 196147445", "ipi_cae": None, "share": None},
+                    {"name": "NOWELL BRADLEY JAMES 183755932", "ipi_cae": None, "share": None},
+                    {"name": "WILSON ERIC JOHN 196150560", "ipi_cae": None, "share": None},
                 ],
                 "publishers": [],
                 "status": None,
@@ -228,9 +228,9 @@ def test_writer_last_names_match_full_candidate_writer_names() -> None:
                 "iswc": "T0709421237",
                 "alternate_titles": [],
                 "writers": [
-                    {"name": "GAUGH FLOYD I", "ipi_cae": None, "share": None},
-                    {"name": "NOWELL BRADLEY JAMES", "ipi_cae": None, "share": None},
-                    {"name": "WILSON ERIC JOHN", "ipi_cae": None, "share": None},
+                    {"name": "GAUGH FLOYD I 196147445", "ipi_cae": None, "share": None},
+                    {"name": "NOWELL BRADLEY JAMES 183755932", "ipi_cae": None, "share": None},
+                    {"name": "WILSON ERIC JOHN 196150560", "ipi_cae": None, "share": None},
                 ],
                 "publishers": [],
                 "status": None,
@@ -590,7 +590,7 @@ def test_external_writer_reference_ranks_complete_ascap_work_first(monkeypatch) 
 def test_reference_writer_first_last_match_ignores_candidate_middle_name(monkeypatch) -> None:
     def fake_reference_lookup(ascap_work, candidates):
         return WriterReference(
-            writers=["Bradley Nowell"],
+            writers=["Bradley Nowell", "Bradley Nowell"],
             sources=["MusicBrainz"],
             status="found",
             note="Test reference.",
@@ -619,7 +619,7 @@ def test_reference_writer_first_last_match_ignores_candidate_middle_name(monkeyp
                 "public_work_id": "902491331",
                 "iswc": "T9168033678",
                 "alternate_titles": ["BAD FISH"],
-                "writers": [{"name": "NOWELL BRADLEY JAMES", "ipi_cae": None, "share": None}],
+                "writers": [{"name": "NOWELL BRADLEY JAMES 183755932", "ipi_cae": None, "share": None}],
                 "publishers": [],
                 "status": None,
                 "source_url": None,
